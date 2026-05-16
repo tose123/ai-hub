@@ -36,10 +36,10 @@ jobs:
 
     steps:
       - name: Check out
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          ref: refs/tags/${{ github.event.inputs.tag }}
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && 0 || 1 }}
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Resolve tag & write VERSION
         id: version
@@ -157,10 +157,6 @@ jobs:
       packages: write
       contents: read
     steps:
-      - name: Extract tag
-        run: |
-          echo "TAG=${{ github.event.inputs.tag }}" >> "$GITHUB_ENV"
-
       - name: Prepare registry targets
         id: registry
         run: |
