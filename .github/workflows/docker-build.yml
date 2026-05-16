@@ -158,7 +158,17 @@ jobs:
       contents: read
     steps:
       - name: Set version
-        run: echo "TAG=${{ github.event.inputs.tag || github.ref }}" >> $GITHUB_ENV
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+            if ! git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+              echo "::error::Tag '$TAG' does not exist"
+              exit 1
+            fi
+          else
+            TAG=${GITHUB_REF#refs/tags/}
+          fi
+          echo "TAG=${TAG}" >> $GITHUB_ENV
 
       - name: Prepare registry targets
         id: registry
