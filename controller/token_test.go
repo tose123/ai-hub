@@ -21,6 +21,30 @@ import (
 	"gorm.io/gorm"
 )
 
+type legacyTokenWithoutAutoGroupsOverride struct {
+	Id                 int            `gorm:"primaryKey"`
+	UserId             int            `gorm:"index"`
+	Key                string         `gorm:"column:key;type:char(48);uniqueIndex"`
+	Status             int            `gorm:"default:1"`
+	Name               string         `gorm:"index"`
+	CreatedTime        int64          `gorm:"bigint"`
+	AccessedTime       int64          `gorm:"bigint"`
+	ExpiredTime        int64          `gorm:"bigint;default:-1"`
+	RemainQuota        int            `gorm:"default:0"`
+	UnlimitedQuota     bool
+	ModelLimitsEnabled bool
+	ModelLimits        string         `gorm:"type:text"`
+	AllowIps           *string        `gorm:"default:''"`
+	UsedQuota          int            `gorm:"default:0"`
+	Group              string         `gorm:"column:group;default:''"`
+	CrossGroupRetry    bool
+	DeletedAt          gorm.DeletedAt `gorm:"index"`
+}
+
+func (legacyTokenWithoutAutoGroupsOverride) TableName() string {
+	return "tokens"
+}
+
 type tokenAPIResponse struct {
 	Success bool            `json:"success"`
 	Message string          `json:"message"`
@@ -32,10 +56,11 @@ type tokenPageResponse struct {
 }
 
 type tokenResponseItem struct {
-	ID     int    `json:"id"`
-	Name   string `json:"name"`
-	Key    string `json:"key"`
-	Status int    `json:"status"`
+	ID                 int      `json:"id"`
+	Name               string   `json:"name"`
+	Key                string   `json:"key"`
+	Status             int      `json:"status"`
+	AutoGroupsOverride []string `json:"auto_groups_override"`
 }
 
 type tokenKeyResponse struct {
@@ -233,6 +258,79 @@ func getSQLiteColumnType(t *testing.T, db *gorm.DB, tableName string, columnName
 	t.Fatalf("column %s not found in %s schema", columnName, tableName)
 	return ""
 }
+
+func TestNormalizeTokenAutoGroups(t *testing.T) {
+	normalized := model.NormalizeTokenAutoGroups([]string{"default", "", "vip", "default", " vip "})
+	if len(normalized) != 2 || normalized[0] != "default" || normalized[1] != "vip" {
+		t.Fatalf("unexpected normalized groups: %#v", normalized)
+	}
+}
+
+func TestValidateTokenAutoGroupsRejectsEmpty(t *testing.T) {
+	if err := model.ValidateTokenAutoGroups([]string{"", "   "}); err == nil {
+		t.Fatal("expected empty auto groups override to be rejected")
+	}
+}
+
+func TestTokenAutoGroupsOverrideRoundTrip(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	groups := model.TokenAutoGroups([]string{"default", "", "vip", "default"})
+	token := &model.Token{
+		UserId:             1,
+		Name:               "auto-groups",
+		Key:                "sk-test-auto-groups",
+		Status:             common.TokenStatusEnabled,
+		CreatedTime:        1,
+		AccessedTime:       1,
+		ExpiredTime:        -1,
+		RemainQuota:        100,
+		UnlimitedQuota:     true,
+		Group:              "auto",
+		AutoGroupsOverride: &groups,
+	}
+	if err := db.Create(token).Error; err != nil {
+		t.Fatalf("failed to create token: %v", err)
+	}
+
+	loaded, err := model.GetTokenById(token.Id)
+	if err != nil {
+		t.Fatalf("failed to load token: %v", err)
+	}
+	got := loaded.GetAutoGroupsOverride()
+	if len(got) != 2 || got[0] != "default" || got[1] != "vip" {
+		t.Fatalf("unexpected auto groups override: %#v", got)
+	}
+
+	var raw sql.NullString
+	if err := db.Raw("SELECT auto_groups_override FROM tokens WHERE id = ?", token.Id).Scan(&raw).Error; err != nil {
+		t.Fatalf("failed to read raw auto_groups_override: %v", err)
+	}
+	if !raw.Valid || raw.String != `["default","vip"]` {
+		t.Fatalf("unexpected persisted auto_groups_override: %#v", raw)
+	}
+}
+
+func TestTokenAutoGroupsOverrideRejectsEmptyArrayOnSave(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	groups := model.TokenAutoGroups{}
+	token := &model.Token{
+		UserId:             1,
+		Name:               "reject-empty-auto-groups",
+		Key:                "sk-test-reject-empty-auto-groups",
+		Status:             common.TokenStatusEnabled,
+		CreatedTime:        1,
+		AccessedTime:       1,
+		ExpiredTime:        -1,
+		RemainQuota:        100,
+		UnlimitedQuota:     true,
+		Group:              "auto",
+		AutoGroupsOverride: &groups,
+	}
+	if err := db.Create(token).Error; err == nil {
+		t.Fatal("expected create with empty auto groups override to fail")
+	}
+}
+
 
 func getTokenKeyColumnType(t *testing.T, db *gorm.DB, dialect string) string {
 	t.Helper()
@@ -470,6 +568,94 @@ func TestGetTokenMasksKeyInResponse(t *testing.T) {
 	}
 }
 
+func TestGetTokenReturnsOrderedAutoGroupsOverride(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	groups := model.TokenAutoGroups([]string{"default", "vip"})
+	token := &model.Token{
+		UserId:             1,
+		Name:               "detail-auto-groups",
+		Key:                "qrst-auto-groups-5678",
+		Status:             common.TokenStatusEnabled,
+		CreatedTime:        1,
+		AccessedTime:       1,
+		ExpiredTime:        -1,
+		RemainQuota:        100,
+		UnlimitedQuota:     true,
+		Group:              "auto",
+		AutoGroupsOverride: &groups,
+	}
+	if err := db.Create(token).Error; err != nil {
+		t.Fatalf("failed to create token: %v", err)
+	}
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/"+strconv.Itoa(token.Id), nil, 1)
+	ctx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(token.Id)}}
+	GetToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected success response, got message: %s", response.Message)
+	}
+
+	var detail tokenResponseItem
+	if err := common.Unmarshal(response.Data, &detail); err != nil {
+		t.Fatalf("failed to decode token detail response: %v", err)
+	}
+	if len(detail.AutoGroupsOverride) != 2 || detail.AutoGroupsOverride[0] != "default" || detail.AutoGroupsOverride[1] != "vip" {
+		t.Fatalf("unexpected auto_groups_override order: %#v", detail.AutoGroupsOverride)
+	}
+}
+
+func TestAddTokenAcceptsAutoGroupsOverride(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+
+	body := map[string]any{
+		"name":                 "auto-token",
+		"expired_time":         -1,
+		"remain_quota":         100,
+		"unlimited_quota":      true,
+		"model_limits_enabled": false,
+		"model_limits":         "",
+		"group":                "auto",
+		"cross_group_retry":    false,
+		"auto_groups_override": []string{"default", "vip"},
+	}
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/", body, 1)
+	AddToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected success response, got message: %s", response.Message)
+	}
+
+	var stored model.Token
+	if err := db.Where("user_id = ? AND name = ?", 1, "auto-token").First(&stored).Error; err != nil {
+		t.Fatalf("failed to load created token: %v", err)
+	}
+	got := stored.GetAutoGroupsOverride()
+	if len(got) != 2 || got[0] != "default" || got[1] != "vip" {
+		t.Fatalf("unexpected stored auto_groups_override: %#v", got)
+	}
+
+	readCtx, readRecorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/"+strconv.Itoa(stored.Id), nil, 1)
+	readCtx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(stored.Id)}}
+	GetToken(readCtx)
+
+	readResponse := decodeAPIResponse(t, readRecorder)
+	if !readResponse.Success {
+		t.Fatalf("expected detail read after create to succeed, got message: %s", readResponse.Message)
+	}
+
+	var detail tokenResponseItem
+	if err := common.Unmarshal(readResponse.Data, &detail); err != nil {
+		t.Fatalf("failed to decode token detail response after create: %v", err)
+	}
+	if len(detail.AutoGroupsOverride) != 2 || detail.AutoGroupsOverride[0] != "default" || detail.AutoGroupsOverride[1] != "vip" {
+		t.Fatalf("unexpected detail auto_groups_override after create: %#v", detail.AutoGroupsOverride)
+	}
+}
+
 func TestUpdateTokenMasksKeyInResponse(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	token := seedToken(t, db, 1, "editable-token", "yzab1234cdef5678")
@@ -503,6 +689,118 @@ func TestUpdateTokenMasksKeyInResponse(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), token.Key) {
 		t.Fatalf("update response leaked raw token key: %s", recorder.Body.String())
+	}
+}
+
+func TestUpdateTokenRejectsEmptyAutoGroupsOverride(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	groups := model.TokenAutoGroups([]string{"default", "vip"})
+	token := &model.Token{
+		UserId:             1,
+		Name:               "editable-auto-token",
+		Key:                "yzab-auto-groups-5678",
+		Status:             common.TokenStatusEnabled,
+		CreatedTime:        1,
+		AccessedTime:       1,
+		ExpiredTime:        -1,
+		RemainQuota:        100,
+		UnlimitedQuota:     true,
+		Group:              "auto",
+		AutoGroupsOverride: &groups,
+	}
+	if err := db.Create(token).Error; err != nil {
+		t.Fatalf("failed to create token: %v", err)
+	}
+
+	body := map[string]any{
+		"id":                   token.Id,
+		"name":                 "updated-token",
+		"expired_time":         -1,
+		"remain_quota":         100,
+		"unlimited_quota":      true,
+		"model_limits_enabled": false,
+		"model_limits":         "",
+		"group":                "auto",
+		"cross_group_retry":    false,
+		"auto_groups_override": []string{},
+	}
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", body, 1)
+	UpdateToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	if response.Success {
+		t.Fatal("expected update with empty auto_groups_override to fail")
+	}
+	if !strings.Contains(response.Message, "auto groups override") {
+		t.Fatalf("expected clear auto groups error message, got %q", response.Message)
+	}
+
+	loaded, err := model.GetTokenById(token.Id)
+	if err != nil {
+		t.Fatalf("failed to reload token: %v", err)
+	}
+	got := loaded.GetAutoGroupsOverride()
+	if len(got) != 2 || got[0] != "default" || got[1] != "vip" {
+		t.Fatalf("expected override preserved after rejected update, got %#v", got)
+	}
+}
+
+func TestUpdateTokenKeepsAutoGroupsOverrideWhenFieldOmitted(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	groups := model.TokenAutoGroups([]string{"default", "vip"})
+	token := &model.Token{
+		UserId:             1,
+		Name:               "editable-keep-auto-token",
+		Key:                "yzab-keep-auto-groups",
+		Status:             common.TokenStatusEnabled,
+		CreatedTime:        1,
+		AccessedTime:       1,
+		ExpiredTime:        -1,
+		RemainQuota:        100,
+		UnlimitedQuota:     true,
+		Group:              "auto",
+		AutoGroupsOverride: &groups,
+	}
+	if err := db.Create(token).Error; err != nil {
+		t.Fatalf("failed to create token: %v", err)
+	}
+
+	body := map[string]any{
+		"id":                   token.Id,
+		"name":                 "updated-token",
+		"expired_time":         -1,
+		"remain_quota":         100,
+		"unlimited_quota":      true,
+		"model_limits_enabled": false,
+		"model_limits":         "",
+		"group":                "auto",
+		"cross_group_retry":    false,
+	}
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", body, 1)
+	UpdateToken(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	if !response.Success {
+		t.Fatalf("expected success response, got message: %s", response.Message)
+	}
+
+	var detail tokenResponseItem
+	if err := common.Unmarshal(response.Data, &detail); err != nil {
+		t.Fatalf("failed to decode token update response: %v", err)
+	}
+	if len(detail.AutoGroupsOverride) != 2 || detail.AutoGroupsOverride[0] != "default" || detail.AutoGroupsOverride[1] != "vip" {
+		t.Fatalf("expected update response to preserve override, got %#v", detail.AutoGroupsOverride)
+	}
+
+	loaded, err := model.GetTokenById(token.Id)
+	if err != nil {
+		t.Fatalf("failed to reload token: %v", err)
+	}
+	got := loaded.GetAutoGroupsOverride()
+	if len(got) != 2 || got[0] != "default" || got[1] != "vip" {
+		t.Fatalf("expected omitted override to stay unchanged, got %#v", got)
 	}
 }
 

@@ -14,6 +14,44 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type tokenUpsertRequest struct {
+	Id                 int                     `json:"id"`
+	Name               string                  `json:"name"`
+	ExpiredTime        int64                   `json:"expired_time"`
+	RemainQuota        int                     `json:"remain_quota"`
+	UnlimitedQuota     bool                    `json:"unlimited_quota"`
+	ModelLimitsEnabled bool                    `json:"model_limits_enabled"`
+	ModelLimits        string                  `json:"model_limits"`
+	AllowIps           *string                 `json:"allow_ips"`
+	Group              string                  `json:"group"`
+	CrossGroupRetry    bool                    `json:"cross_group_retry"`
+	Status             int                     `json:"status"`
+	AutoGroupsOverride *[]string               `json:"auto_groups_override,omitempty"`
+}
+
+func normalizeRequestedTokenAutoGroups(groups *[]string) (*model.TokenAutoGroups, error) {
+	if groups == nil {
+		return nil, nil
+	}
+	value := model.TokenAutoGroups(*groups)
+	normalized, err := model.NormalizeTokenAutoGroupsValue(&value)
+	if err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
+func handleTokenAutoGroupsError(c *gin.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	if err.Error() == "auto groups override 不能为空" {
+		common.ApiErrorMsg(c, err.Error())
+		return true
+	}
+	return false
+}
+
 func buildMaskedTokenResponse(token *model.Token) *model.Token {
 	if token == nil {
 		return nil
@@ -165,24 +203,32 @@ func GetTokenUsage(c *gin.Context) {
 }
 
 func AddToken(c *gin.Context) {
-	token := model.Token{}
-	err := c.ShouldBindJSON(&token)
+	req := tokenUpsertRequest{}
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if len(token.Name) > 50 {
+	autoGroupsOverride, err := normalizeRequestedTokenAutoGroups(req.AutoGroupsOverride)
+	if err != nil {
+		if handleTokenAutoGroupsError(c, err) {
+			return
+		}
+		common.ApiError(c, err)
+		return
+	}
+	if len(req.Name) > 50 {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
 	// 非无限额度时，检查额度值是否超出有效范围
-	if !token.UnlimitedQuota {
-		if token.RemainQuota < 0 {
+	if !req.UnlimitedQuota {
+		if req.RemainQuota < 0 {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
 			return
 		}
 		maxQuotaValue := int((1000000000 * common.QuotaPerUnit))
-		if token.RemainQuota > maxQuotaValue {
+		if req.RemainQuota > maxQuotaValue {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaExceedMax, map[string]any{"Max": maxQuotaValue})
 			return
 		}
@@ -209,18 +255,19 @@ func AddToken(c *gin.Context) {
 	}
 	cleanToken := model.Token{
 		UserId:             c.GetInt("id"),
-		Name:               token.Name,
+		Name:               req.Name,
 		Key:                key,
 		CreatedTime:        common.GetTimestamp(),
 		AccessedTime:       common.GetTimestamp(),
-		ExpiredTime:        token.ExpiredTime,
-		RemainQuota:        token.RemainQuota,
-		UnlimitedQuota:     token.UnlimitedQuota,
-		ModelLimitsEnabled: token.ModelLimitsEnabled,
-		ModelLimits:        token.ModelLimits,
-		AllowIps:           token.AllowIps,
-		Group:              token.Group,
-		CrossGroupRetry:    token.CrossGroupRetry,
+		ExpiredTime:        req.ExpiredTime,
+		RemainQuota:        req.RemainQuota,
+		UnlimitedQuota:     req.UnlimitedQuota,
+		ModelLimitsEnabled: req.ModelLimitsEnabled,
+		ModelLimits:        req.ModelLimits,
+		AllowIps:           req.AllowIps,
+		Group:              req.Group,
+		CrossGroupRetry:    req.CrossGroupRetry,
+		AutoGroupsOverride: autoGroupsOverride,
 	}
 	err = cleanToken.Insert()
 	if err != nil {
@@ -250,33 +297,41 @@ func DeleteToken(c *gin.Context) {
 func UpdateToken(c *gin.Context) {
 	userId := c.GetInt("id")
 	statusOnly := c.Query("status_only")
-	token := model.Token{}
-	err := c.ShouldBindJSON(&token)
+	req := tokenUpsertRequest{}
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if len(token.Name) > 50 {
+	autoGroupsOverride, err := normalizeRequestedTokenAutoGroups(req.AutoGroupsOverride)
+	if err != nil {
+		if handleTokenAutoGroupsError(c, err) {
+			return
+		}
+		common.ApiError(c, err)
+		return
+	}
+	if len(req.Name) > 50 {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
-	if !token.UnlimitedQuota {
-		if token.RemainQuota < 0 {
+	if !req.UnlimitedQuota {
+		if req.RemainQuota < 0 {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
 			return
 		}
 		maxQuotaValue := int((1000000000 * common.QuotaPerUnit))
-		if token.RemainQuota > maxQuotaValue {
+		if req.RemainQuota > maxQuotaValue {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaExceedMax, map[string]any{"Max": maxQuotaValue})
 			return
 		}
 	}
-	cleanToken, err := model.GetTokenByIds(token.Id, userId)
+	cleanToken, err := model.GetTokenByIds(req.Id, userId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if token.Status == common.TokenStatusEnabled {
+	if req.Status == common.TokenStatusEnabled {
 		if cleanToken.Status == common.TokenStatusExpired && cleanToken.ExpiredTime <= common.GetTimestamp() && cleanToken.ExpiredTime != -1 {
 			common.ApiErrorI18n(c, i18n.MsgTokenExpiredCannotEnable)
 			return
@@ -287,18 +342,21 @@ func UpdateToken(c *gin.Context) {
 		}
 	}
 	if statusOnly != "" {
-		cleanToken.Status = token.Status
+		cleanToken.Status = req.Status
 	} else {
 		// If you add more fields, please also update token.Update()
-		cleanToken.Name = token.Name
-		cleanToken.ExpiredTime = token.ExpiredTime
-		cleanToken.RemainQuota = token.RemainQuota
-		cleanToken.UnlimitedQuota = token.UnlimitedQuota
-		cleanToken.ModelLimitsEnabled = token.ModelLimitsEnabled
-		cleanToken.ModelLimits = token.ModelLimits
-		cleanToken.AllowIps = token.AllowIps
-		cleanToken.Group = token.Group
-		cleanToken.CrossGroupRetry = token.CrossGroupRetry
+		cleanToken.Name = req.Name
+		cleanToken.ExpiredTime = req.ExpiredTime
+		cleanToken.RemainQuota = req.RemainQuota
+		cleanToken.UnlimitedQuota = req.UnlimitedQuota
+		cleanToken.ModelLimitsEnabled = req.ModelLimitsEnabled
+		cleanToken.ModelLimits = req.ModelLimits
+		cleanToken.AllowIps = req.AllowIps
+		cleanToken.Group = req.Group
+		cleanToken.CrossGroupRetry = req.CrossGroupRetry
+		if req.AutoGroupsOverride != nil {
+			cleanToken.AutoGroupsOverride = autoGroupsOverride
+		}
 	}
 	err = cleanToken.Update()
 	if err != nil {

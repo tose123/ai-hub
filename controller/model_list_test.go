@@ -11,7 +11,9 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
@@ -43,7 +45,7 @@ func setupModelListControllerTestDB(t *testing.T) *gorm.DB {
 	model.DB = db
 	model.LOG_DB = db
 
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
 
 	t.Cleanup(func() {
 		sqlDB, err := db.DB()
@@ -154,6 +156,72 @@ func pricingByModelName(pricings []model.Pricing) map[string]model.Pricing {
 	return byName
 }
 
+func withTieredAutoGroupPricing(t *testing.T) {
+	t.Helper()
+	withTieredBillingConfig(t, map[string]string{
+		"zz-tiered-visible-model":       "tiered_expr",
+		"zz-token-tiered-visible-model": "tiered_expr",
+	}, map[string]string{
+		"zz-tiered-visible-model":       `tier("base", p * 1 + c * 2)`,
+		"zz-token-tiered-visible-model": `tier("base", p * 1 + c * 2)`,
+	})
+}
+
+func withAutoGroups(t *testing.T, groups []string) {
+	t.Helper()
+
+	original := append([]string(nil), setting.GetAutoGroups()...)
+	jsonStr := "[]"
+	if len(groups) > 0 {
+		data, err := common.Marshal(groups)
+		require.NoError(t, err)
+		jsonStr = string(data)
+	}
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(jsonStr))
+	t.Cleanup(func() {
+		restoreJSON, err := common.Marshal(original)
+		require.NoError(t, err)
+		require.NoError(t, setting.UpdateAutoGroupsByJsonString(string(restoreJSON)))
+	})
+}
+
+func seedModelListAutoGroupData(t *testing.T, db *gorm.DB) {
+	t.Helper()
+
+	require.NoError(t, db.Create(&model.User{
+		Id:       2001,
+		Username: "auto-model-user",
+		Password: "password",
+		Group:    "default",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&model.Channel{Id: 1, Name: "test-channel", Key: "sk-channel", Status: common.ChannelStatusEnabled, Group: "default", Models: "zz-tiered-visible-model,zz-token-tiered-visible-model"}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "zz-tiered-visible-model", ChannelId: 1, Enabled: true},
+		{Group: "vip", Model: "zz-token-tiered-visible-model", ChannelId: 1, Enabled: true},
+	}).Error)
+}
+
+func newAutoToken(groups []string) *model.Token {
+	token := &model.Token{
+		UserId:         2001,
+		Name:           "auto-token",
+		Key:            "sk-auto-token",
+		Status:         common.TokenStatusEnabled,
+		CreatedTime:    1,
+		AccessedTime:   1,
+		ExpiredTime:    -1,
+		RemainQuota:    100,
+		UnlimitedQuota: true,
+		Group:          "auto",
+	}
+	if len(groups) > 0 {
+		normalized := model.TokenAutoGroups(groups)
+		token.AutoGroupsOverride = &normalized
+	}
+	return token
+}
+
 func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 	withSelfUseModeDisabled(t)
 	withTieredBillingConfig(t, map[string]string{
@@ -239,4 +307,50 @@ func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 	require.NotContains(t, ids, "zz-token-tiered-empty-expr-model")
 	require.NotContains(t, ids, "zz-token-tiered-missing-expr-model")
 	require.NotContains(t, ids, "zz-token-unpriced-model")
+}
+
+func TestListModelsAutoTokenFallsBackToSystemAutoGroups(t *testing.T) {
+	withSelfUseModeDisabled(t)
+	withTieredAutoGroupPricing(t)
+	withAutoGroups(t, []string{"default", "vip"})
+	db := setupModelListControllerTestDB(t)
+	seedModelListAutoGroupData(t, db)
+
+	token := newAutoToken(nil)
+	require.NoError(t, db.Create(token).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	ctx.Set("id", 2001)
+	require.NoError(t, middleware.SetupContextForToken(ctx, token))
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+	ids := decodeListModelsResponse(t, recorder)
+	require.Contains(t, ids, "zz-tiered-visible-model")
+	require.Contains(t, ids, "zz-token-tiered-visible-model")
+}
+
+func TestListModelsAutoTokenUsesOverrideOrderScope(t *testing.T) {
+	withSelfUseModeDisabled(t)
+	withTieredAutoGroupPricing(t)
+	withAutoGroups(t, []string{"default", "vip"})
+	db := setupModelListControllerTestDB(t)
+	seedModelListAutoGroupData(t, db)
+
+	token := newAutoToken([]string{"vip"})
+	require.NoError(t, db.Create(token).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	ctx.Set("id", 2001)
+	require.NoError(t, middleware.SetupContextForToken(ctx, token))
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+	ids := decodeListModelsResponse(t, recorder)
+	require.NotContains(t, ids, "zz-tiered-visible-model")
+	require.Contains(t, ids, "zz-token-tiered-visible-model")
 }

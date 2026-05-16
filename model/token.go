@@ -1,6 +1,7 @@
 package model
 
 import (
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +11,124 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
 )
+
+const errTokenAutoGroupsEmpty = "auto groups override 不能为空"
+
+type TokenAutoGroups []string
+
+func NormalizeTokenAutoGroups(groups []string) []string {
+	if len(groups) == 0 {
+		return nil
+	}
+	normalized := make([]string, 0, len(groups))
+	seen := make(map[string]struct{}, len(groups))
+	for _, group := range groups {
+		group = strings.TrimSpace(group)
+		if group == "" {
+			continue
+		}
+		if _, ok := seen[group]; ok {
+			continue
+		}
+		seen[group] = struct{}{}
+		normalized = append(normalized, group)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func ValidateTokenAutoGroups(groups []string) error {
+	if len(groups) == 0 {
+		return errors.New(errTokenAutoGroupsEmpty)
+	}
+	if len(NormalizeTokenAutoGroups(groups)) == 0 {
+		return errors.New(errTokenAutoGroupsEmpty)
+	}
+	return nil
+}
+
+func EncodeTokenAutoGroups(groups []string) (*string, error) {
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	if err := ValidateTokenAutoGroups(groups); err != nil {
+		return nil, err
+	}
+	normalized := NormalizeTokenAutoGroups(groups)
+	data, err := common.Marshal(normalized)
+	if err != nil {
+		return nil, err
+	}
+	encoded := string(data)
+	return &encoded, nil
+}
+
+func DecodeTokenAutoGroups(raw string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var groups []string
+	if err := common.UnmarshalJsonStr(raw, &groups); err != nil {
+		return nil, err
+	}
+	normalized := NormalizeTokenAutoGroups(groups)
+	if len(groups) > 0 && len(normalized) == 0 {
+		return nil, errors.New(errTokenAutoGroupsEmpty)
+	}
+	return normalized, nil
+}
+
+func NormalizeTokenAutoGroupsValue(value *TokenAutoGroups) (*TokenAutoGroups, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if len(*value) == 0 {
+		return nil, errors.New(errTokenAutoGroupsEmpty)
+	}
+	normalized := NormalizeTokenAutoGroups(*value)
+	if len(normalized) == 0 {
+		return nil, errors.New(errTokenAutoGroupsEmpty)
+	}
+	result := TokenAutoGroups(normalized)
+	return &result, nil
+}
+
+func (g TokenAutoGroups) Value() (driver.Value, error) {
+	encoded, err := EncodeTokenAutoGroups([]string(g))
+	if err != nil {
+		return nil, err
+	}
+	if encoded == nil {
+		return nil, nil
+	}
+	return *encoded, nil
+}
+
+func (g *TokenAutoGroups) Scan(value interface{}) error {
+	switch v := value.(type) {
+	case nil:
+		*g = nil
+		return nil
+	case []byte:
+		groups, err := DecodeTokenAutoGroups(string(v))
+		if err != nil {
+			return err
+		}
+		*g = TokenAutoGroups(groups)
+		return nil
+	case string:
+		groups, err := DecodeTokenAutoGroups(v)
+		if err != nil {
+			return err
+		}
+		*g = TokenAutoGroups(groups)
+		return nil
+	default:
+		return fmt.Errorf("unsupported token auto groups type: %T", value)
+	}
+}
 
 type Token struct {
 	Id                 int            `json:"id"`
@@ -28,7 +147,32 @@ type Token struct {
 	UsedQuota          int            `json:"used_quota" gorm:"default:0"` // used quota
 	Group              string         `json:"group" gorm:"default:''"`
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
+	AutoGroupsOverride *TokenAutoGroups `json:"auto_groups_override,omitempty" gorm:"type:text"`
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
+}
+
+func (token *Token) normalizeAutoGroupsOverride() error {
+	normalized, err := NormalizeTokenAutoGroupsValue(token.AutoGroupsOverride)
+	if err != nil {
+		return err
+	}
+	token.AutoGroupsOverride = normalized
+	return nil
+}
+
+func (token *Token) BeforeCreate(tx *gorm.DB) error {
+	return token.normalizeAutoGroupsOverride()
+}
+
+func (token *Token) BeforeUpdate(tx *gorm.DB) error {
+	return token.normalizeAutoGroupsOverride()
+}
+
+func (token *Token) GetAutoGroupsOverride() []string {
+	if token.AutoGroupsOverride == nil {
+		return nil
+	}
+	return NormalizeTokenAutoGroups([]string(*token.AutoGroupsOverride))
 }
 
 func (token *Token) Clean() {
@@ -295,7 +439,7 @@ func (token *Token) Update() (err error) {
 		}
 	}()
 	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry").Updates(token).Error
+		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups_override").Updates(token).Error
 	return err
 }
 

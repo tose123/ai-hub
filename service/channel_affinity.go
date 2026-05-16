@@ -964,3 +964,7 @@ func channelAffinityUsageCacheStatsLock(key string) *sync.Mutex {
 	idx := h.Sum32() % uint32(len(channelAffinityUsageCacheStatsLocks))
 	return &channelAffinityUsageCacheStatsLocks[idx]
 }
+
+func GetChannelAffinityCacheForTest() *cachex.HybridCache[int] {
+	return getChannelAffinityCache()
+}

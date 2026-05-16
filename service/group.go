@@ -3,8 +3,11 @@ package service
 import (
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/gin-gonic/gin"
 )
 
 func GetUserUsableGroups(userGroup string) map[string]string {
@@ -49,6 +52,25 @@ func GetUserAutoGroup(userGroup string) []string {
 		if _, ok := groups[group]; ok {
 			autoGroups = append(autoGroups, group)
 		}
+	}
+	return autoGroups
+}
+
+// GetTokenAwareAutoGroups 优先读取 token 级 auto groups override，为空时回退系统 auto groups。
+func GetTokenAwareAutoGroups(c *gin.Context, userGroup string) []string {
+	override := common.GetContextKeyStringSlice(c, constant.ContextKeyTokenAutoGroupsOverride)
+	if len(override) == 0 {
+		return GetUserAutoGroup(userGroup)
+	}
+	groups := GetUserUsableGroups(userGroup)
+	autoGroups := make([]string, 0, len(override))
+	for _, group := range override {
+		if _, ok := groups[group]; ok {
+			autoGroups = append(autoGroups, group)
+		}
+	}
+	if len(autoGroups) == 0 {
+		return GetUserAutoGroup(userGroup)
 	}
 	return autoGroups
 }
