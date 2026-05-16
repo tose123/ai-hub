@@ -158,7 +158,7 @@ jobs:
       contents: read
     steps:
       - name: Set version
-        run: echo "TAG=${{ needs.build_single_arch.outputs.tag }}" >> $GITHUB_ENV
+        run: echo "TAG=${{ github.event.inputs.tag || github.ref }}" >> $GITHUB_ENV
 
       - name: Prepare registry targets
         id: registry
