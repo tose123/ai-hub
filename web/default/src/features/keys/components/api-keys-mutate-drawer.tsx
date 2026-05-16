@@ -16,14 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from 'react'
 import { useForm, type SubmitErrorHandler } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
 import {
   ChevronDown,
+  GripVertical,
   KeyRound,
   Settings2,
+  Trash2,
   WalletCards,
   type LucideIcon,
 } from 'lucide-react'
@@ -39,6 +47,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import { Combobox } from '@/components/ui/combobox'
 import {
   Form,
   FormControl,
@@ -62,6 +71,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { DateTimePicker } from '@/components/datetime-picker'
 import { MultiSelect } from '@/components/multi-select'
+import { getPricing } from '@/features/pricing/api'
 import { createApiKey, updateApiKey, getApiKey } from '../api'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
@@ -71,8 +81,9 @@ import {
   transformFormDataToPayload,
   transformApiKeyToFormDefaults,
 } from '../lib'
-import { type ApiKey } from '../types'
+import type { ApiKey } from '../types'
 import {
+  GroupRatioBadge,
   ApiKeyGroupCombobox,
   type ApiKeyGroupOption,
 } from './api-key-group-combobox'
@@ -125,7 +136,11 @@ export function ApiKeysMutateDrawer({
   const { status } = useStatus()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [draggedAutoGroup, setDraggedAutoGroup] = useState<string | null>(null)
+  const [autoGroupError, setAutoGroupError] = useState('')
   const defaultUseAutoGroup = status?.default_use_auto_group === true
+  const userEditedOverrideRef = useRef(false)
+  const prevModeRef = useRef<string>('')
 
   // Fetch models
   const { data: modelsData } = useQuery({
@@ -141,6 +156,12 @@ export function ApiKeysMutateDrawer({
     staleTime: 5 * 60 * 1000,
   })
 
+  const { data: pricingData } = useQuery({
+    queryKey: ['pricing-auto-groups'],
+    queryFn: getPricing,
+    staleTime: 5 * 60 * 1000,
+  })
+
   const models = modelsData?.data || []
   const groupsRaw = groupsData?.data || {}
   const groups: ApiKeyGroupOption[] = Object.entries(groupsRaw).map(
@@ -152,6 +173,7 @@ export function ApiKeysMutateDrawer({
     })
   )
   const backendHasAuto = groups.some((g) => g.value === 'auto')
+  const pricingAutoGroups = (pricingData?.auto_groups || []).filter(Boolean)
   const schema = getApiKeyFormSchema(t)
 
   const form = useForm<ApiKeyFormValues>({
@@ -164,23 +186,124 @@ export function ApiKeysMutateDrawer({
     if (open && isUpdate && currentRow) {
       getApiKey(currentRow.id).then((result) => {
         if (result.success && result.data) {
+          if (
+            !result.data.auto_groups_override ||
+            result.data.auto_groups_override.length === 0
+          ) {
+            result.data.auto_groups_override = pricingAutoGroups
+          }
+          userEditedOverrideRef.current = false
           form.reset(transformApiKeyToFormDefaults(result.data))
         }
       })
     } else if (open && !isUpdate) {
-      form.reset(getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto))
+      userEditedOverrideRef.current = false
+      prevModeRef.current = ''
+      form.reset(
+        getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto)
+      )
     }
   }, [open, isUpdate, currentRow, form, defaultUseAutoGroup, backendHasAuto])
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies(pricingAutoGroups): suppress dependency pricingAutoGroups
+  useEffect(() => {
+    if (!open) return
+    const group = form.watch('group')
+    if (prevModeRef.current !== 'auto' && group === 'auto') {
+      const current = form.getValues('auto_groups_override') || []
+      const hasCurrent = current.length > 0
+      if (
+        !userEditedOverrideRef.current &&
+        !hasCurrent &&
+        pricingAutoGroups.length > 0
+      ) {
+        setAutoGroupError('')
+        form.setValue('auto_groups_override', pricingAutoGroups, {
+          shouldDirty: true,
+          shouldValidate: true,
+        })
+      }
+    }
+    prevModeRef.current = group || ''
+  }, [open, form])
+
+  const availableOverrideGroups = groups.filter((g) => g.value !== 'auto')
+  const availableOverrideGroupNames = availableOverrideGroups.map(
+    (g) => g.value
+  )
+
+  const autoGroupsOverride = form.watch('auto_groups_override') || []
+
+  const appendAutoGroup = (value: string) => {
+    const next = value.trim()
+    if (!next) {
+      setAutoGroupError(t('Please select a group'))
+      return
+    }
+    if (!availableOverrideGroupNames.includes(next)) {
+      setAutoGroupError(t('Invalid group in auto groups override'))
+      return
+    }
+    if (autoGroupsOverride.includes(next)) {
+      setAutoGroupError(t('Group already exists in auto groups override'))
+      return
+    }
+    userEditedOverrideRef.current = true
+    setAutoGroupError('')
+    form.clearErrors('auto_groups_override')
+    form.setValue('auto_groups_override', [...autoGroupsOverride, next], {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+  }
+
+  const deleteAutoGroup = (index: number) => {
+    userEditedOverrideRef.current = true
+    setAutoGroupError('')
+    form.clearErrors('auto_groups_override')
+    form.setValue(
+      'auto_groups_override',
+      autoGroupsOverride.filter((_, i) => i !== index),
+      {
+        shouldDirty: true,
+        shouldValidate: true,
+      }
+    )
+  }
+
+  const handleAutoGroupDrop = (targetValue: string) => {
+    if (!draggedAutoGroup || draggedAutoGroup === targetValue) {
+      return
+    }
+    const sourceIndex = autoGroupsOverride.indexOf(draggedAutoGroup)
+    const targetIndex = autoGroupsOverride.indexOf(targetValue)
+    if (sourceIndex === -1 || targetIndex === -1) {
+      return
+    }
+    const reordered = [...autoGroupsOverride]
+    const [moved] = reordered.splice(sourceIndex, 1)
+    reordered.splice(targetIndex, 0, moved)
+    userEditedOverrideRef.current = true
+    setAutoGroupError('')
+    form.clearErrors('auto_groups_override')
+    form.setValue('auto_groups_override', reordered, {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+  }
 
   // Correct group after groups load: if the form value is not in available groups, fall back
   useEffect(() => {
     if (groups.length === 0) return
     const currentGroup = form.getValues('group')
     if (currentGroup && !groups.some((g) => g.value === currentGroup)) {
-      const fallback = groups.find((g) => g.value === 'default')?.value ?? groups[0]?.value ?? ''
+      const fallback =
+        groups.find((g) => g.value === 'default')?.value ??
+        groups[0]?.value ??
+        ''
       form.setValue('group', fallback)
       if (currentGroup === 'auto') {
-        form.setValue('cross_group_retry', false)
+        form.setValue('cross_group_retry', true)
       }
     }
   }, [groups, form])
@@ -189,6 +312,31 @@ export function ApiKeysMutateDrawer({
     setIsSubmitting(true)
     try {
       const basePayload = transformFormDataToPayload(data)
+
+      if (data.group === 'auto') {
+        const normalized = (data.auto_groups_override || []).filter(Boolean)
+        const hasDuplicate = new Set(normalized).size !== normalized.length
+        const hasInvalid = normalized.some(
+          (groupValue) =>
+            groupValue === 'auto' ||
+            !availableOverrideGroupNames.includes(groupValue)
+        )
+        if (normalized.length === 0 || hasDuplicate || hasInvalid) {
+          form.setError('auto_groups_override', {
+            type: 'manual',
+            message: t(
+              'Auto groups override must be non-empty, unique, and only contain valid non-auto groups'
+            ),
+          })
+          setAutoGroupError(
+            t(
+              'Auto groups override must be non-empty, unique, and only contain valid non-auto groups'
+            )
+          )
+          setIsSubmitting(false)
+          return
+        }
+      }
 
       if (isUpdate && currentRow) {
         const result = await updateApiKey({
@@ -268,6 +416,8 @@ export function ApiKeysMutateDrawer({
   const selectedGroup = form.watch('group')
   const unlimitedQuota = form.watch('unlimited_quota')
 
+  const getGroup = (name: string) => groups.find((g) => g.value === name)
+
   return (
     <Sheet
       open={open}
@@ -338,30 +488,129 @@ export function ApiKeysMutateDrawer({
               />
 
               {selectedGroup === 'auto' && (
-                <FormField
-                  control={form.control}
-                  name='cross_group_retry'
-                  render={({ field }) => (
-                    <FormItem className='flex min-h-16 flex-row items-center justify-between gap-3 rounded-lg border px-3 py-2.5 sm:min-h-20 sm:gap-4 sm:px-4 sm:py-3'>
-                      <div className='space-y-0.5'>
-                        <FormLabel className='text-sm'>
-                          {t('Cross-group retry')}
-                        </FormLabel>
-                        <FormDescription className='line-clamp-2 text-xs sm:line-clamp-none'>
-                          {t(
-                            'When enabled, if channels in the current group fail, it will try channels in the next group in order.'
-                          )}
-                        </FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch
-                          checked={!!field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
+                <>
+                  <FormField
+                    control={form.control}
+                    name='auto_groups_override'
+                    render={({ field }) => {
+                      const options = availableOverrideGroups
+                        .filter((g) => !autoGroupsOverride.includes(g.value))
+                        .map((g) => ({
+                          value: g.value,
+                          label: <div className='my-2'>
+                            <div className='flex'>
+                              <GroupRatioBadge ratio={g.ratio} />
+                              <div className='ml-2'>{g.value}</div>
+                            </div>
+                            <span className='mt-1 text-muted-foreground block truncate text-[11px] sm:text-xs'>{g.desc}</span>
+                          </div>,
+                        }))
+
+                      return (
+                        <FormItem>
+                          <div className='mb-2'>
+                            <FormLabel>{t('Auto groups override')}</FormLabel>
+                            <FormDescription>
+                              {t(
+                                'Configure ordered fallback groups for this key when using auto mode.'
+                              )}
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Combobox
+                              options={options}
+                              value=''
+                              onValueChange={(value) => {
+                                if (!value) return
+                                appendAutoGroup(value)
+                              }}
+                              placeholder={t('Select a group')}
+                              searchPlaceholder={t('Select a group')}
+                              emptyText={t('No available groups can be added')}
+                            />
+                          </FormControl>
+
+                          <ul className='mt-3 space-y-2'>
+                            {field.value?.map((groupValue, index) => {
+                              const group = getGroup(groupValue)
+                              return (
+                                <li
+                                  key={groupValue}
+                                  draggable={autoGroupsOverride.length > 1}
+                                  onDragStart={(
+                                    e: DragEvent<HTMLLIElement>
+                                  ) => {
+                                    e.dataTransfer.effectAllowed = 'move'
+                                    setDraggedAutoGroup(groupValue)
+                                  }}
+                                  onDragOver={(e: DragEvent<HTMLLIElement>) => {
+                                    e.preventDefault()
+                                    e.dataTransfer.dropEffect = 'move'
+                                  }}
+                                  onDrop={(e: DragEvent<HTMLLIElement>) => {
+                                    e.preventDefault()
+                                    handleAutoGroupDrop(groupValue)
+                                    setDraggedAutoGroup(null)
+                                  }}
+                                  onDragEnd={() => setDraggedAutoGroup(null)}
+                                  className='bg-muted/40 flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left'
+                                >
+                                  <div className='flex items-center gap-2'>
+                                    <GripVertical className='text-muted-foreground size-4' />
+                                    <GroupRatioBadge ratio={group?.ratio || 0} />
+                                    <span className='text-sm'>
+                                      {groupValue}
+                                    </span>
+                                  </div>
+                                  <Button
+                                    type='button'
+                                    size='icon'
+                                    variant='ghost'
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    onClick={() => deleteAutoGroup(index)}
+                                  >
+                                    <Trash2 className='size-4' />
+                                  </Button>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                          <FormMessage />
+                          {autoGroupError ? (
+                            <p className='text-destructive mt-2 text-xs'>
+                              {autoGroupError}
+                            </p>
+                          ) : null}
+                        </FormItem>
+                      )
+                    }}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='cross_group_retry'
+                    render={({ field }) => (
+                      <FormItem className='flex min-h-16 flex-row items-center justify-between gap-3 rounded-lg border px-3 py-2.5 sm:min-h-20 sm:gap-4 sm:px-4 sm:py-3'>
+                        <div className='space-y-0.5'>
+                          <FormLabel className='text-sm'>
+                            {t('Cross-group retry')}
+                          </FormLabel>
+                          <FormDescription className='line-clamp-2 text-xs sm:line-clamp-none'>
+                            {t(
+                              'When enabled, if channels in the current group fail, it will try channels in the next group in order.'
+                            )}
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={!!field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                </>
               )}
 
               <FormField

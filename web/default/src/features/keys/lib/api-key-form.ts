@@ -20,7 +20,7 @@ import { z } from 'zod'
 import type { TFunction } from 'i18next'
 import { parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
 import { DEFAULT_GROUP } from '../constants'
-import { type ApiKeyFormData, type ApiKey } from '../types'
+import type { ApiKey, ApiKeyFormData } from '../types'
 
 // ============================================================================
 // Form Schema
@@ -36,6 +36,7 @@ export function getApiKeyFormSchema(t: TFunction) {
       model_limits: z.array(z.string()),
       allow_ips: z.string().optional(),
       group: z.string().optional(),
+      auto_groups_override: z.array(z.string()).optional(),
       cross_group_retry: z.boolean().optional(),
       tokenCount: z.number().min(1).optional(),
     })
@@ -73,6 +74,7 @@ export const API_KEY_FORM_DEFAULT_VALUES: ApiKeyFormValues = {
   model_limits: [],
   allow_ips: '',
   group: DEFAULT_GROUP,
+  auto_groups_override: [],
   cross_group_retry: true,
   tokenCount: 1,
 }
@@ -97,6 +99,8 @@ export function getApiKeyFormDefaultValues(
 export function transformFormDataToPayload(
   data: ApiKeyFormValues
 ): ApiKeyFormData {
+  const normalizedAutoGroups = (data.auto_groups_override || []).filter(Boolean)
+
   return {
     name: data.name,
     remain_quota: data.unlimited_quota
@@ -110,6 +114,10 @@ export function transformFormDataToPayload(
     model_limits: data.model_limits.join(','),
     allow_ips: data.allow_ips || '',
     group: data.group || '',
+    auto_groups_override:
+      data.group === 'auto' && normalizedAutoGroups.length > 0
+        ? normalizedAutoGroups
+        : undefined,
     cross_group_retry: data.group === 'auto' ? !!data.cross_group_retry : false,
   }
 }
@@ -135,6 +143,7 @@ export function transformApiKeyToFormDefaults(
       : [],
     allow_ips: apiKey.allow_ips || '',
     group: apiKey.group || DEFAULT_GROUP,
+    auto_groups_override: apiKey.auto_groups_override || [],
     cross_group_retry: !!apiKey.cross_group_retry,
     tokenCount: 1,
   }

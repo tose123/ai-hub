@@ -24,7 +24,7 @@ import { Input } from '@/components/ui/input'
 
 export type ComboboxInputOption = {
   value: string
-  label: string
+  label: React.ReactNode
   icon?: React.ReactNode
 }
 
@@ -67,7 +67,6 @@ export function ComboboxInput({
     const search = searchValue.toLowerCase().trim()
     return options.filter(
       (option) =>
-        option.label.toLowerCase().includes(search) ||
         option.value.toLowerCase().includes(search)
     )
   }, [options, searchValue])
