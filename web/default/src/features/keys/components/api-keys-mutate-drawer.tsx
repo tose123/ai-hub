@@ -141,6 +141,7 @@ export function ApiKeysMutateDrawer({
   const defaultUseAutoGroup = status?.default_use_auto_group === true
   const userEditedOverrideRef = useRef(false)
   const prevModeRef = useRef<string>('')
+  const [autoGroupsOverrideEdited, setAutoGroupsOverrideEdited] = useState(false)
 
   // Fetch models
   const { data: modelsData } = useQuery({
@@ -186,14 +187,9 @@ export function ApiKeysMutateDrawer({
     if (open && isUpdate && currentRow) {
       getApiKey(currentRow.id).then((result) => {
         if (result.success && result.data) {
-          if (
-            !result.data.auto_groups_override ||
-            result.data.auto_groups_override.length === 0
-          ) {
-            result.data.auto_groups_override = pricingAutoGroups
-          }
+          setAutoGroupsOverrideEdited(result.data.auto_groups_override?.length > 0)
           userEditedOverrideRef.current = false
-          form.reset(transformApiKeyToFormDefaults(result.data))
+          form.reset(transformApiKeyToFormDefaults(result.data, pricingAutoGroups))
         }
       })
     } else if (open && !isUpdate) {
@@ -205,7 +201,6 @@ export function ApiKeysMutateDrawer({
     }
   }, [open, isUpdate, currentRow, form, defaultUseAutoGroup, backendHasAuto])
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies(pricingAutoGroups): suppress dependency pricingAutoGroups
   useEffect(() => {
     if (!open) return
     const group = form.watch('group')
@@ -255,6 +250,7 @@ export function ApiKeysMutateDrawer({
       shouldDirty: true,
       shouldValidate: true,
     })
+    setAutoGroupsOverrideEdited(true)
   }
 
   const deleteAutoGroup = (index: number) => {
@@ -269,6 +265,7 @@ export function ApiKeysMutateDrawer({
         shouldValidate: true,
       }
     )
+    setAutoGroupsOverrideEdited(true)
   }
 
   const handleAutoGroupDrop = (targetValue: string) => {
@@ -290,6 +287,7 @@ export function ApiKeysMutateDrawer({
       shouldDirty: true,
       shouldValidate: true,
     })
+    setAutoGroupsOverrideEdited(true)
   }
 
   // Correct group after groups load: if the form value is not in available groups, fall back
@@ -314,6 +312,7 @@ export function ApiKeysMutateDrawer({
       const basePayload = transformFormDataToPayload(data)
 
       if (data.group === 'auto') {
+        if (!autoGroupsOverrideEdited) basePayload.auto_groups_override = [];
         const normalized = (data.auto_groups_override || []).filter(Boolean)
         const hasDuplicate = new Set(normalized).size !== normalized.length
         const hasInvalid = normalized.some(
@@ -321,7 +320,7 @@ export function ApiKeysMutateDrawer({
             groupValue === 'auto' ||
             !availableOverrideGroupNames.includes(groupValue)
         )
-        if (normalized.length === 0 || hasDuplicate || hasInvalid) {
+        if (hasDuplicate || hasInvalid) {
           form.setError('auto_groups_override', {
             type: 'manual',
             message: t(

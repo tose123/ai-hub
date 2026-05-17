@@ -15,18 +15,18 @@ import (
 )
 
 type tokenUpsertRequest struct {
-	Id                 int                     `json:"id"`
-	Name               string                  `json:"name"`
-	ExpiredTime        int64                   `json:"expired_time"`
-	RemainQuota        int                     `json:"remain_quota"`
-	UnlimitedQuota     bool                    `json:"unlimited_quota"`
-	ModelLimitsEnabled bool                    `json:"model_limits_enabled"`
-	ModelLimits        string                  `json:"model_limits"`
-	AllowIps           *string                 `json:"allow_ips"`
-	Group              string                  `json:"group"`
-	CrossGroupRetry    bool                    `json:"cross_group_retry"`
-	Status             int                     `json:"status"`
-	AutoGroupsOverride *[]string               `json:"auto_groups_override,omitempty"`
+	Id                 int       `json:"id"`
+	Name               string    `json:"name"`
+	ExpiredTime        int64     `json:"expired_time"`
+	RemainQuota        int       `json:"remain_quota"`
+	UnlimitedQuota     bool      `json:"unlimited_quota"`
+	ModelLimitsEnabled bool      `json:"model_limits_enabled"`
+	ModelLimits        string    `json:"model_limits"`
+	AllowIps           *string   `json:"allow_ips"`
+	Group              string    `json:"group"`
+	CrossGroupRetry    bool      `json:"cross_group_retry"`
+	Status             int       `json:"status"`
+	AutoGroupsOverride *[]string `json:"auto_groups_override,omitempty"`
 }
 
 func normalizeRequestedTokenAutoGroups(groups *[]string) (*model.TokenAutoGroups, error) {
@@ -354,9 +354,7 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.AllowIps = req.AllowIps
 		cleanToken.Group = req.Group
 		cleanToken.CrossGroupRetry = req.CrossGroupRetry
-		if req.AutoGroupsOverride != nil {
-			cleanToken.AutoGroupsOverride = autoGroupsOverride
-		}
+		cleanToken.AutoGroupsOverride = autoGroupsOverride
 	}
 	err = cleanToken.Update()
 	if err != nil {

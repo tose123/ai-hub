@@ -12,8 +12,6 @@ import (
 	"gorm.io/gorm"
 )
 
-const errTokenAutoGroupsEmpty = "auto groups override 不能为空"
-
 type TokenAutoGroups []string
 
 func NormalizeTokenAutoGroups(groups []string) []string {
@@ -40,12 +38,6 @@ func NormalizeTokenAutoGroups(groups []string) []string {
 }
 
 func ValidateTokenAutoGroups(groups []string) error {
-	if len(groups) == 0 {
-		return errors.New(errTokenAutoGroupsEmpty)
-	}
-	if len(NormalizeTokenAutoGroups(groups)) == 0 {
-		return errors.New(errTokenAutoGroupsEmpty)
-	}
 	return nil
 }
 
@@ -74,9 +66,6 @@ func DecodeTokenAutoGroups(raw string) ([]string, error) {
 		return nil, err
 	}
 	normalized := NormalizeTokenAutoGroups(groups)
-	if len(groups) > 0 && len(normalized) == 0 {
-		return nil, errors.New(errTokenAutoGroupsEmpty)
-	}
 	return normalized, nil
 }
 
@@ -84,13 +73,7 @@ func NormalizeTokenAutoGroupsValue(value *TokenAutoGroups) (*TokenAutoGroups, er
 	if value == nil {
 		return nil, nil
 	}
-	if len(*value) == 0 {
-		return nil, errors.New(errTokenAutoGroupsEmpty)
-	}
 	normalized := NormalizeTokenAutoGroups(*value)
-	if len(normalized) == 0 {
-		return nil, errors.New(errTokenAutoGroupsEmpty)
-	}
 	result := TokenAutoGroups(normalized)
 	return &result, nil
 }
@@ -131,24 +114,24 @@ func (g *TokenAutoGroups) Scan(value interface{}) error {
 }
 
 type Token struct {
-	Id                 int            `json:"id"`
-	UserId             int            `json:"user_id" gorm:"index"`
-	Key                string         `json:"key" gorm:"type:varchar(128);uniqueIndex"`
-	Status             int            `json:"status" gorm:"default:1"`
-	Name               string         `json:"name" gorm:"index" `
-	CreatedTime        int64          `json:"created_time" gorm:"bigint"`
-	AccessedTime       int64          `json:"accessed_time" gorm:"bigint"`
-	ExpiredTime        int64          `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
-	RemainQuota        int            `json:"remain_quota" gorm:"default:0"`
-	UnlimitedQuota     bool           `json:"unlimited_quota"`
-	ModelLimitsEnabled bool           `json:"model_limits_enabled"`
-	ModelLimits        string         `json:"model_limits" gorm:"type:text"`
-	AllowIps           *string        `json:"allow_ips" gorm:"default:''"`
-	UsedQuota          int            `json:"used_quota" gorm:"default:0"` // used quota
-	Group              string         `json:"group" gorm:"default:''"`
-	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
+	Id                 int              `json:"id"`
+	UserId             int              `json:"user_id" gorm:"index"`
+	Key                string           `json:"key" gorm:"type:varchar(128);uniqueIndex"`
+	Status             int              `json:"status" gorm:"default:1"`
+	Name               string           `json:"name" gorm:"index" `
+	CreatedTime        int64            `json:"created_time" gorm:"bigint"`
+	AccessedTime       int64            `json:"accessed_time" gorm:"bigint"`
+	ExpiredTime        int64            `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
+	RemainQuota        int              `json:"remain_quota" gorm:"default:0"`
+	UnlimitedQuota     bool             `json:"unlimited_quota"`
+	ModelLimitsEnabled bool             `json:"model_limits_enabled"`
+	ModelLimits        string           `json:"model_limits" gorm:"type:text"`
+	AllowIps           *string          `json:"allow_ips" gorm:"default:''"`
+	UsedQuota          int              `json:"used_quota" gorm:"default:0"` // used quota
+	Group              string           `json:"group" gorm:"default:''"`
+	CrossGroupRetry    bool             `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
 	AutoGroupsOverride *TokenAutoGroups `json:"auto_groups_override,omitempty" gorm:"type:text"`
-	DeletedAt          gorm.DeletedAt `gorm:"index"`
+	DeletedAt          gorm.DeletedAt   `gorm:"index"`
 }
 
 func (token *Token) normalizeAutoGroupsOverride() error {

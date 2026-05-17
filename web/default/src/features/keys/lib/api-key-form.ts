@@ -126,7 +126,8 @@ export function transformFormDataToPayload(
  * Transform API key data to form defaults
  */
 export function transformApiKeyToFormDefaults(
-  apiKey: ApiKey
+  apiKey: ApiKey,
+  defaultAutoGroupsOverride: string[] = []
 ): ApiKeyFormValues {
   return {
     name: apiKey.name,
@@ -143,7 +144,7 @@ export function transformApiKeyToFormDefaults(
       : [],
     allow_ips: apiKey.allow_ips || '',
     group: apiKey.group || DEFAULT_GROUP,
-    auto_groups_override: apiKey.auto_groups_override || [],
+    auto_groups_override: apiKey.auto_groups_override || defaultAutoGroupsOverride,
     cross_group_retry: !!apiKey.cross_group_retry,
     tokenCount: 1,
   }
