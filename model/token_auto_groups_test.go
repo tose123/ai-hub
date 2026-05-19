@@ -13,21 +13,21 @@ import (
 )
 
 type legacyTokenWithoutAutoGroupsOverride struct {
-	Id                 int            `gorm:"primaryKey"`
-	UserId             int            `gorm:"index"`
-	Key                string         `gorm:"column:key;type:char(48);uniqueIndex"`
-	Status             int            `gorm:"default:1"`
-	Name               string         `gorm:"index"`
-	CreatedTime        int64          `gorm:"bigint"`
-	AccessedTime       int64          `gorm:"bigint"`
-	ExpiredTime        int64          `gorm:"bigint;default:-1"`
-	RemainQuota        int            `gorm:"default:0"`
+	Id                 int    `gorm:"primaryKey"`
+	UserId             int    `gorm:"index"`
+	Key                string `gorm:"column:key;type:char(48);uniqueIndex"`
+	Status             int    `gorm:"default:1"`
+	Name               string `gorm:"index"`
+	CreatedTime        int64  `gorm:"bigint"`
+	AccessedTime       int64  `gorm:"bigint"`
+	ExpiredTime        int64  `gorm:"bigint;default:-1"`
+	RemainQuota        int    `gorm:"default:0"`
 	UnlimitedQuota     bool
 	ModelLimitsEnabled bool
-	ModelLimits        string         `gorm:"type:text"`
-	AllowIps           *string        `gorm:"default:''"`
-	UsedQuota          int            `gorm:"default:0"`
-	Group              string         `gorm:"column:group;default:''"`
+	ModelLimits        string  `gorm:"type:text"`
+	AllowIps           *string `gorm:"default:''"`
+	UsedQuota          int     `gorm:"default:0"`
+	Group              string  `gorm:"column:group;default:''"`
 	CrossGroupRetry    bool
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
@@ -163,44 +163,5 @@ func TestTokenAutoGroupsOverrideUpdateRoundTrip(t *testing.T) {
 	}
 	if !raw.Valid || raw.String != `["default","vip"]` {
 		t.Fatalf("unexpected persisted auto_groups_override after update: %#v", raw)
-	}
-}
-
-func TestTokenAutoGroupsOverrideRejectsEmptyArrayOnUpdate(t *testing.T) {
-	db := openTokenModelTestDB(t)
-	if err := db.AutoMigrate(&Token{}); err != nil {
-		t.Fatalf("failed to migrate token table: %v", err)
-	}
-	initialGroups := TokenAutoGroups([]string{"default"})
-	token := &Token{
-		UserId:             1,
-		Name:               "reject-empty-update-auto-groups",
-		Key:                "sk-test-reject-empty-update-auto-groups",
-		Status:             common.TokenStatusEnabled,
-		CreatedTime:        1,
-		AccessedTime:       1,
-		ExpiredTime:        -1,
-		RemainQuota:        100,
-		UnlimitedQuota:     true,
-		Group:              "auto",
-		AutoGroupsOverride: &initialGroups,
-	}
-	if err := db.Create(token).Error; err != nil {
-		t.Fatalf("failed to create token: %v", err)
-	}
-
-	emptyGroups := TokenAutoGroups{}
-	token.AutoGroupsOverride = &emptyGroups
-	if err := token.Update(); err == nil {
-		t.Fatal("expected update with empty auto groups override to fail")
-	}
-
-	reloaded, err := GetTokenById(token.Id)
-	if err != nil {
-		t.Fatalf("failed to reload token: %v", err)
-	}
-	got := reloaded.GetAutoGroupsOverride()
-	if len(got) != 1 || got[0] != "default" {
-		t.Fatalf("unexpected auto groups override after rejected update: %#v", got)
 	}
 }

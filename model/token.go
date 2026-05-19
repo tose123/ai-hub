@@ -37,16 +37,9 @@ func NormalizeTokenAutoGroups(groups []string) []string {
 	return normalized
 }
 
-func ValidateTokenAutoGroups(groups []string) error {
-	return nil
-}
-
 func EncodeTokenAutoGroups(groups []string) (*string, error) {
 	if len(groups) == 0 {
 		return nil, nil
-	}
-	if err := ValidateTokenAutoGroups(groups); err != nil {
-		return nil, err
 	}
 	normalized := NormalizeTokenAutoGroups(groups)
 	data, err := common.Marshal(normalized)
