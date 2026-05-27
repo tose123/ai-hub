@@ -103,6 +103,8 @@ func InitEnv() {
 	BatchUpdateInterval = GetEnvOrDefault("BATCH_UPDATE_INTERVAL", 5)
 	RelayTimeout = GetEnvOrDefault("RELAY_TIMEOUT", 0)
 	RelayResponseHeaderTimeout = GetEnvOrDefault("RELAY_RESPONSE_HEADER_TIMEOUT", 30)
+	RelayImageResponseHeaderTimeout = GetEnvOrDefault("RELAY_IMAGE_RESPONSE_HEADER_TIMEOUT", 600)
+	RelayVideoResponseHeaderTimeout = GetEnvOrDefault("RELAY_VIDEO_RESPONSE_HEADER_TIMEOUT", 1800)
 	RelayDialTimeout = GetEnvOrDefault("RELAY_DIAL_TIMEOUT", 10)
 	RelayTLSHandshakeTimeout = GetEnvOrDefault("RELAY_TLS_HANDSHAKE_TIMEOUT", 10)
 	RelayMaxIdleConns = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS", 500)

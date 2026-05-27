@@ -171,6 +171,8 @@ var BatchUpdateInterval int
 // unit is second
 var RelayTimeout int
 var RelayResponseHeaderTimeout int
+var RelayImageResponseHeaderTimeout int
+var RelayVideoResponseHeaderTimeout int
 var RelayDialTimeout int
 var RelayTLSHandshakeTimeout int
 

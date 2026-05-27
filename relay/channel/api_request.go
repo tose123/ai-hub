@@ -496,6 +496,11 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		client = service.GetHttpClient()
 	}
 
+	transport, ok := client.Transport.(*http.Transport)
+	if ok && transport != nil {
+		transport.ResponseHeaderTimeout = helper.GetRelayResponseHeaderTimeout(info.UpstreamModelName, req.URL.Path)
+	}
+
 	var stopPinger context.CancelFunc
 	if info.IsStream {
 		helper.SetEventStreamHeaders(c)
