@@ -34,11 +34,20 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 }
 
 func InitHttpClient() {
+	dialer := &net.Dialer{
+		Timeout:   time.Duration(common.RelayDialTimeout) * time.Second,
+		KeepAlive: 25 * time.Second,
+	}
+
 	transport := &http.Transport{
-		MaxIdleConns:        common.RelayMaxIdleConns,
-		MaxIdleConnsPerHost: common.RelayMaxIdleConnsPerHost,
-		ForceAttemptHTTP2:   true,
-		Proxy:               http.ProxyFromEnvironment, // Support HTTP_PROXY, HTTPS_PROXY, NO_PROXY env vars
+		MaxIdleConns:          common.RelayMaxIdleConns,
+		MaxIdleConnsPerHost:   common.RelayMaxIdleConnsPerHost,
+		ForceAttemptHTTP2:     true,
+		Proxy:                 http.ProxyFromEnvironment, // Support HTTP_PROXY, HTTPS_PROXY, NO_PROXY env vars
+		DialContext:           dialer.DialContext,
+		TLSHandshakeTimeout:   time.Duration(common.RelayTLSHandshakeTimeout) * time.Second,
+		ResponseHeaderTimeout: time.Duration(common.RelayResponseHeaderTimeout) * time.Second,
+		IdleConnTimeout:       90 * time.Second,
 	}
 	if common.TLSInsecureSkipVerify {
 		transport.TLSClientConfig = common.InsecureTLSConfig
@@ -103,13 +112,22 @@ func NewProxyHttpClient(proxyURL string) (*http.Client, error) {
 		return nil, err
 	}
 
+	baseDialer := &net.Dialer{
+		Timeout:   time.Duration(common.RelayDialTimeout) * time.Second,
+		KeepAlive: 25 * time.Second,
+	}
+
 	switch parsedURL.Scheme {
 	case "http", "https":
 		transport := &http.Transport{
-			MaxIdleConns:        common.RelayMaxIdleConns,
-			MaxIdleConnsPerHost: common.RelayMaxIdleConnsPerHost,
-			ForceAttemptHTTP2:   true,
-			Proxy:               http.ProxyURL(parsedURL),
+			MaxIdleConns:          common.RelayMaxIdleConns,
+			MaxIdleConnsPerHost:   common.RelayMaxIdleConnsPerHost,
+			ForceAttemptHTTP2:     true,
+			Proxy:                 http.ProxyURL(parsedURL),
+			DialContext:           baseDialer.DialContext,
+			TLSHandshakeTimeout:   time.Duration(common.RelayTLSHandshakeTimeout) * time.Second,
+			ResponseHeaderTimeout: time.Duration(common.RelayResponseHeaderTimeout) * time.Second,
+			IdleConnTimeout:       90 * time.Second,
 		}
 		if common.TLSInsecureSkipVerify {
 			transport.TLSClientConfig = common.InsecureTLSConfig
@@ -139,9 +157,14 @@ func NewProxyHttpClient(proxyURL string) (*http.Client, error) {
 
 		// 创建 SOCKS5 代理拨号器
 		// proxy.SOCKS5 使用 tcp 参数，所有 TCP 连接包括 DNS 查询都将通过代理进行。行为与 socks5h 相同
-		dialer, err := proxy.SOCKS5("tcp", parsedURL.Host, auth, proxy.Direct)
+		dialer, err := proxy.SOCKS5("tcp", parsedURL.Host, auth, baseDialer)
 		if err != nil {
 			return nil, err
+		}
+
+		ctxDialer, ok := dialer.(proxy.ContextDialer)
+		if !ok {
+			return nil, fmt.Errorf("socks5 dialer does not implement ContextDialer")
 		}
 
 		transport := &http.Transport{
@@ -149,8 +172,16 @@ func NewProxyHttpClient(proxyURL string) (*http.Client, error) {
 			MaxIdleConnsPerHost: common.RelayMaxIdleConnsPerHost,
 			ForceAttemptHTTP2:   true,
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				return dialer.Dial(network, addr)
+				ctxTimeout, cancel := context.WithTimeout(
+					ctx,
+					time.Duration(common.RelayDialTimeout)*time.Second,
+				)
+				defer cancel()
+				return ctxDialer.DialContext(ctxTimeout, network, addr)
 			},
+			TLSHandshakeTimeout:   time.Duration(common.RelayTLSHandshakeTimeout) * time.Second,
+			ResponseHeaderTimeout: time.Duration(common.RelayResponseHeaderTimeout) * time.Second,
+			IdleConnTimeout:       90 * time.Second,
 		}
 		if common.TLSInsecureSkipVerify {
 			transport.TLSClientConfig = common.InsecureTLSConfig
