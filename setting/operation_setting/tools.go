@@ -161,6 +161,10 @@ const (
 )
 
 func GetGPTImage1PriceOnceCall(quality string, size string) float64 {
+	if price := GetToolPrice("image_generation_call"); price > 0 {
+		return price / 1000
+	}
+
 	prices := map[string]map[string]float64{
 		"low": {
 			"1024x1024": GPTImage1Low1024x1024,
