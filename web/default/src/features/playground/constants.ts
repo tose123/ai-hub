@@ -39,13 +39,13 @@ export const API_ENDPOINTS = {
   USER_GROUPS: '/api/user/self/groups',
 } as const
 
-// Default group — uses 'default' as the safe fallback; auto-group is
+// Default group — uses 'auto' as the safe fallback; auto-group is
 // only selected when the backend confirms it is available for the user.
-export const DEFAULT_GROUP = 'default' as const
+export const DEFAULT_GROUP = 'auto' as const
 
 // Default configuration
 export const DEFAULT_CONFIG: PlaygroundConfig = {
-  model: 'gpt-4o',
+  model: 'gpt-5.5',
   group: DEFAULT_GROUP,
   temperature: 0.7,
   top_p: 1,

@@ -108,7 +108,7 @@ export function Playground() {
     const hasCurrentGroup = groupsData.some((g) => g.value === config.group)
     if (!hasCurrentGroup && groupsData.length > 0) {
       const fallback =
-        groupsData.find((g) => g.value === 'default')?.value ??
+        groupsData.find((g) => g.value === 'auto')?.value ??
         groupsData[0].value
       updateConfig('group', fallback)
     }
