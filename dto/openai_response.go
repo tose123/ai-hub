@@ -378,6 +378,7 @@ const (
 	BuildInToolWebSearch        = "web_search"
 	BuildInToolWebSearchPreview = "web_search_preview"
 	BuildInToolFileSearch       = "file_search"
+	BuildInToolImageGeneration  = "image_generation"
 )
 
 const (

@@ -128,6 +128,16 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 							webSearchTool.CallCount++
 						}
 					}
+				case dto.ResponsesOutputTypeImageGenerationCall:
+					if info != nil && info.ResponsesUsageInfo != nil && info.ResponsesUsageInfo.BuiltInTools != nil {
+						if imageGenerationTool, exists := info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolImageGeneration]; exists && imageGenerationTool != nil {
+							imageGenerationTool.CallCount++
+						}
+					} else {
+						c.Set("image_generation_call", true)
+						c.Set("image_generation_call_quality", streamResponse.Item.Quality)
+						c.Set("image_generation_call_size", streamResponse.Item.Size)
+					}
 				}
 			}
 		}
