@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -86,6 +87,27 @@ func getPriority(group string, model string, retry int) (int, error) {
 		priorityToUse = priorities[retry]
 	}
 	return priorityToUse, nil
+}
+
+func GetChannelPriorityCount(group string, model string) (int, error) {
+	count, err := getChannelPriorityCount(group, model)
+	if err != nil || count > 0 {
+		return count, err
+	}
+	normalizedModel := ratio_setting.FormatMatchingModelName(model)
+	if normalizedModel == "" || normalizedModel == model {
+		return 0, nil
+	}
+	return getChannelPriorityCount(group, normalizedModel)
+}
+
+func getChannelPriorityCount(group string, model string) (int, error) {
+	var priorities []int
+	err := DB.Model(&Ability{}).
+		Select("DISTINCT(priority)").
+		Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
+		Pluck("priority", &priorities).Error
+	return len(priorities), err
 }
 
 func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {

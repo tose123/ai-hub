@@ -191,6 +191,36 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	return nil, errors.New("channel not found")
 }
 
+func GetSatisfiedChannelPriorityCount(group string, model string) (int, error) {
+	if !common.MemoryCacheEnabled {
+		return GetChannelPriorityCount(group, model)
+	}
+
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+
+	channels := group2model2channels[group][model]
+	if len(channels) == 0 {
+		normalizedModel := ratio_setting.FormatMatchingModelName(model)
+		if normalizedModel != "" && normalizedModel != model {
+			channels = group2model2channels[group][normalizedModel]
+		}
+	}
+	if len(channels) == 0 {
+		return 0, nil
+	}
+
+	uniquePriorities := make(map[int64]struct{})
+	for _, channelId := range channels {
+		channel, ok := channelsIDM[channelId]
+		if !ok {
+			return 0, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
+		}
+		uniquePriorities[channel.GetPriority()] = struct{}{}
+	}
+	return len(uniquePriorities), nil
+}
+
 func CacheGetChannel(id int) (*Channel, error) {
 	if !common.MemoryCacheEnabled {
 		return GetChannelById(id, true)
