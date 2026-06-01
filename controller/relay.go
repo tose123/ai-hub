@@ -88,6 +88,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	defer func() {
 		if newAPIError != nil {
+			if types.IsClientCanceledError(newAPIError) {
+				logger.LogInfo(c, fmt.Sprintf("relay canceled: %s", common.LocalLogPreview(newAPIError.Error())))
+				return
+			}
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			switch relayFormat {
@@ -188,8 +192,22 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
+	clientCanceledRecorded := false
+	recordClientCanceled := func(apiErr *types.NewAPIError) {
+		if apiErr == nil || clientCanceledRecorded {
+			return
+		}
+		recordRelayErrorLog(c, apiErr)
+		clientCanceledRecorded = true
+	}
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
+		if ctxErr := relayRequestContextErr(c); ctxErr != nil {
+			newAPIError = types.NewClientCanceledError(ctxErr)
+			relayInfo.LastError = newAPIError
+			recordClientCanceled(newAPIError)
+			break
+		}
 		relayInfo.RetryIndex = retryParam.GetRetry()
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
@@ -201,11 +219,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		addUsedChannel(c, channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
-			// Ensure consistent 413 for oversized bodies even when error occurs later (e.g., retry path)
-			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
-				newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
+			if ctxErr := relayRequestContextErr(c); ctxErr != nil {
+				newAPIError = types.NewClientCanceledError(ctxErr)
+				relayInfo.LastError = newAPIError
+				recordClientCanceled(newAPIError)
 			} else {
-				newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+				// Ensure consistent 413 for oversized bodies even when error occurs later (e.g., retry path)
+				if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
+					newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
+				} else {
+					newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+				}
 			}
 			break
 		}
@@ -227,8 +251,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			return
 		}
 
+		if ctxErr := relayRequestContextErr(c); ctxErr != nil && !types.IsClientCanceledError(newAPIError) {
+			newAPIError = types.NewClientCanceledError(ctxErr)
+		}
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		relayInfo.LastError = newAPIError
+
+		if types.IsClientCanceledError(newAPIError) {
+			recordClientCanceled(newAPIError)
+			break
+		}
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
@@ -242,7 +274,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
 		logger.LogInfo(c, retryLogStr)
 	}
-	if newAPIError != nil {
+	if newAPIError != nil && !types.IsClientCanceledError(newAPIError) {
 		gopool.Go(func() {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
 		})
@@ -260,6 +292,13 @@ func addUsedChannel(c *gin.Context, channelId int) {
 	useChannel := c.GetStringSlice("use_channel")
 	useChannel = append(useChannel, fmt.Sprintf("%d", channelId))
 	c.Set("use_channel", useChannel)
+}
+
+func relayRequestContextErr(c *gin.Context) error {
+	if c == nil || c.Request == nil {
+		return nil
+	}
+	return c.Request.Context().Err()
 }
 
 func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
@@ -327,6 +366,9 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if openaiErr == nil {
 		return false
 	}
+	if relayRequestContextErr(c) != nil || types.IsClientCanceledError(openaiErr) {
+		return false
+	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}
@@ -365,6 +407,10 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		})
 	}
 
+	recordRelayErrorLog(c, err)
+}
+
+func recordRelayErrorLog(c *gin.Context, err *types.NewAPIError) {
 	if constant.ErrorLogEnabled && types.IsRecordErrorLog(err) {
 		// 保存错误日志到mysql中
 		userId := c.GetInt("id")
@@ -399,7 +445,6 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		useTimeSeconds := int(time.Since(startTime).Seconds())
 		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 	}
-
 }
 
 func RelayMidjourney(c *gin.Context) {

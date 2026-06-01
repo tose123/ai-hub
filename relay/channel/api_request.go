@@ -481,10 +481,22 @@ func sendPingData(c *gin.Context, mutex *sync.Mutex) error {
 	}
 }
 
+func requestContextErr(c *gin.Context) error {
+	if c == nil || c.Request == nil {
+		return nil
+	}
+	return c.Request.Context().Err()
+}
+
 func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	return doRequest(c, req, info)
 }
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	if ctxErr := requestContextErr(c); ctxErr != nil {
+		logger.LogInfo(c, "client canceled request before upstream request: "+ctxErr.Error())
+		return nil, types.NewClientCanceledError(ctxErr)
+	}
+
 	var client *http.Client
 	var err error
 	if info.ChannelSetting.Proxy != "" {
@@ -525,6 +537,14 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 	resp, err := client.Do(req)
 	if err != nil {
+		if ctxErr := requestContextErr(c); ctxErr != nil {
+			logger.LogInfo(c, "client canceled request during upstream request: "+ctxErr.Error())
+			return nil, types.NewClientCanceledError(ctxErr)
+		}
+		if errors.Is(err, context.Canceled) {
+			logger.LogInfo(c, "client canceled request during upstream request: "+err.Error())
+			return nil, types.NewClientCanceledError(err)
+		}
 		logger.LogError(c, "do request failed: "+err.Error())
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 	}

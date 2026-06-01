@@ -1,14 +1,41 @@
 package channel
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDoRequest_ClientCanceledBeforeUpstreamRequest(t *testing.T) {
+	t.Parallel()
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	reqCtx, cancel := context.WithCancel(req.Context())
+	cancel()
+	ctx.Request = req.WithContext(reqCtx)
+
+	upstreamReq := httptest.NewRequest(http.MethodPost, "https://example.com/v1/responses", nil)
+	resp, err := doRequest(ctx, upstreamReq, &relaycommon.RelayInfo{})
+
+	require.Nil(t, resp)
+	var apiErr *types.NewAPIError
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, types.ErrorCodeClientCanceled, apiErr.GetErrorCode())
+	require.Equal(t, types.StatusClientClosedRequest, apiErr.StatusCode)
+	require.True(t, types.IsSkipRetryError(apiErr))
+	require.True(t, types.IsClientCanceledError(apiErr))
+	require.True(t, errors.Is(apiErr, context.Canceled))
+}
 
 func TestProcessHeaderOverride_ChannelTestSkipsPassthroughRules(t *testing.T) {
 	t.Parallel()

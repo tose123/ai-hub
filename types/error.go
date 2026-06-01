@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,6 +38,8 @@ const (
 
 type ErrorCode string
 
+const StatusClientClosedRequest = 499
+
 const (
 	ErrorCodeInvalidRequest         ErrorCode = "invalid_request"
 	ErrorCodeSensitiveWordsDetected ErrorCode = "sensitive_words_detected"
@@ -64,6 +67,7 @@ const (
 	ErrorCodeReadRequestBodyFailed ErrorCode = "read_request_body_failed"
 	ErrorCodeConvertRequestFailed  ErrorCode = "convert_request_failed"
 	ErrorCodeAccessDenied          ErrorCode = "access_denied"
+	ErrorCodeClientCanceled        ErrorCode = "client_canceled"
 
 	// request error
 	ErrorCodeBadRequestBody ErrorCode = "bad_request_body"
@@ -314,6 +318,18 @@ func NewErrorWithStatusCode(err error, errorCode ErrorCode, statusCode int, ops 
 	return e
 }
 
+func NewClientCanceledError(err error) *NewAPIError {
+	if err == nil {
+		err = context.Canceled
+	}
+	return NewErrorWithStatusCode(
+		fmt.Errorf("client canceled: %w", err),
+		ErrorCodeClientCanceled,
+		StatusClientClosedRequest,
+		ErrOptionWithSkipRetry(),
+	)
+}
+
 func WithOpenAIError(openAIError OpenAIError, statusCode int, ops ...NewAPIErrorOptions) *NewAPIError {
 	code, ok := openAIError.Code.(string)
 	if !ok {
@@ -376,6 +392,17 @@ func IsSkipRetryError(err *NewAPIError) bool {
 	}
 
 	return err.skipRetry
+}
+
+func IsClientCanceledError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *NewAPIError
+	if errors.As(err, &apiErr) {
+		return apiErr.errorCode == ErrorCodeClientCanceled || errors.Is(apiErr.Err, context.Canceled)
+	}
+	return errors.Is(err, context.Canceled)
 }
 
 func ErrOptionWithSkipRetry() NewAPIErrorOptions {
