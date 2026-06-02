@@ -292,6 +292,46 @@ func TestCacheGetRandomSatisfiedChannelCrossGroupSkipsEmptyGroup(t *testing.T) {
 	require.Equal(t, "G2_C9", channel.Name)
 }
 
+func TestCacheGetRandomSatisfiedChannelWithoutCrossGroupRetryCapsByPriorityCount(t *testing.T) {
+	db := setupAutoGroupRuntimeTestDB(t)
+	withRuntimeAutoGroups(t, []string{"G1"})
+	withRuntimeUserUsableGroups(t, []string{"G1"})
+	withRuntimeRetryTimes(t, 5)
+	seedPriorityAutoGroupData(t, db, "runtime-model", map[string][]int64{
+		"G1": {9, 8},
+	})
+
+	ctx := buildRuntimeAutoGroupContext("default", nil)
+	param := &RetryParam{
+		Ctx: ctx, TokenGroup: "auto", ModelName: "runtime-model", Retry: common.GetPointer(0),
+	}
+
+	names := collectAutoGroupSelections(t, param, 5)
+
+	require.Equal(t, []string{"G1_C9", "G1_C8"}, names)
+}
+
+func TestCacheGetRandomSatisfiedChannelWithoutCrossGroupRetryStopsAfterCurrentGroup(t *testing.T) {
+	db := setupAutoGroupRuntimeTestDB(t)
+	withRuntimeAutoGroups(t, []string{"G1", "G2"})
+	withRuntimeUserUsableGroups(t, []string{"G1", "G2"})
+	withRuntimeRetryTimes(t, 5)
+	seedPriorityAutoGroupData(t, db, "runtime-model", map[string][]int64{
+		"G1": {9, 8},
+		"G2": {9, 8},
+	})
+
+	ctx := buildRuntimeAutoGroupContext("default", nil)
+	param := &RetryParam{
+		Ctx: ctx, TokenGroup: "auto", ModelName: "runtime-model", Retry: common.GetPointer(2),
+	}
+
+	channel, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.Nil(t, channel)
+	require.Equal(t, "G1", selectedGroup)
+}
+
 func TestCacheGetRandomSatisfiedChannelCrossGroupCapsPrioritiesByRetryTimes(t *testing.T) {
 	db := setupAutoGroupRuntimeTestDB(t)
 	withRuntimeAutoGroups(t, []string{"G1"})

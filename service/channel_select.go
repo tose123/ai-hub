@@ -48,10 +48,11 @@ func (p *RetryParam) ResetRetryNextTry() {
 // CacheGetRandomSatisfiedChannel selects a channel for the given group/model.
 //
 // 普通分组直接按 retry 映射到优先级层级。auto 分组会按 token 可用的
-// autoGroups 顺序选择；开启跨组重试时，每个子分组最多尝试
-// min(优先级层级数, RetryTimes+1) 次，组内优先级耗尽后切到下一组，
-// 并把组内 retry 重置为 0。亲和性首发失败后的第一次兜底也从
-// autoGroups 的第一个分组、最高优先级重新开始。
+// autoGroups 顺序选择；每个子分组最多尝试
+// min(优先级层级数, RetryTimes+1) 次。开启跨组重试时，组内优先级耗尽后
+// 切到下一组，并把组内 retry 重置为 0；未开启时则在当前组耗尽后停止继续
+// 尝试后续分组。亲和性首发失败后的第一次兜底也从 autoGroups 的第一个分组、
+// 最高优先级重新开始。
 func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, error) {
 	var channel *model.Channel
 	var err error
@@ -91,27 +92,28 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			if i > startGroupIndex {
 				priorityRetry = 0
 			}
-			groupRetryLimit := common.RetryTimes + 1
-			if crossGroupRetry {
-				priorityCount, priorityErr := model.GetSatisfiedChannelPriorityCount(autoGroup, param.ModelName)
-				if priorityErr != nil {
-					return nil, selectGroup, priorityErr
-				}
-				groupRetryLimit = getAutoGroupRetryLimit(priorityCount)
-				if groupRetryLimit == 0 {
-					logger.LogDebug(param.Ctx, "No priority in group %s for model %s, trying next group", autoGroup, param.ModelName)
+			priorityCount, priorityErr := model.GetSatisfiedChannelPriorityCount(autoGroup, param.ModelName)
+			if priorityErr != nil {
+				return nil, selectGroup, priorityErr
+			}
+			groupRetryLimit := getAutoGroupRetryLimit(priorityCount)
+			if groupRetryLimit == 0 {
+				logger.LogDebug(param.Ctx, "No priority in group %s for model %s, trying next group", autoGroup, param.ModelName)
+				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
+				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
+				param.SetRetry(0)
+				continue
+			}
+			if priorityRetry >= groupRetryLimit {
+				logger.LogDebug(param.Ctx, "Auto group %s priority retries exhausted (priorityRetry=%d >= limit=%d)", autoGroup, priorityRetry, groupRetryLimit)
+				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
+				if crossGroupRetry {
+					logger.LogDebug(param.Ctx, "Trying next group after exhausting auto group %s", autoGroup)
 					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
-					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
 					param.SetRetry(0)
 					continue
 				}
-				if priorityRetry >= groupRetryLimit {
-					logger.LogDebug(param.Ctx, "Auto group %s priority retries exhausted (priorityRetry=%d >= limit=%d), trying next group", autoGroup, priorityRetry, groupRetryLimit)
-					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
-					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
-					param.SetRetry(0)
-					continue
-				}
+				return nil, selectGroup, nil
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
