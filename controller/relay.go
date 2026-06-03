@@ -155,6 +155,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	relayInfo.SetEstimatePromptTokens(tokens)
+	common.SetContextKey(c, constant.ContextKeyEstimatedTokens, tokens)
 
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 	if err != nil {
@@ -443,7 +444,11 @@ func recordRelayErrorLog(c *gin.Context, err *types.NewAPIError) {
 			startTime = time.Now()
 		}
 		useTimeSeconds := int(time.Since(startTime).Seconds())
-		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+		promptTokens := common.GetContextKeyInt(c, constant.ContextKeyEstimatedTokens)
+		if promptTokens == 0 {
+			promptTokens = common.GetContextKeyInt(c, constant.ContextKeyPromptTokens)
+		}
+		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, promptTokens, other)
 	}
 }
 

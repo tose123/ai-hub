@@ -65,6 +65,7 @@ func TestRecordRelayErrorLogClientCanceled(t *testing.T) {
 	ctx.Set("channel_name", "primary")
 	ctx.Set("channel_type", 1)
 	ctx.Set("use_channel", []string{"5"})
+	common.SetContextKey(ctx, constant.ContextKeyEstimatedTokens, 12345)
 
 	recordRelayErrorLog(ctx, types.NewClientCanceledError(context.Canceled))
 
@@ -76,6 +77,8 @@ func TestRecordRelayErrorLogClientCanceled(t *testing.T) {
 	require.Equal(t, 5, logs[0].ChannelId)
 	require.Equal(t, "gpt-5.5", logs[0].ModelName)
 	require.Equal(t, "default", logs[0].TokenName)
+	require.Equal(t, 12345, logs[0].PromptTokens)
+	require.Equal(t, 0, logs[0].CompletionTokens)
 	require.Equal(t, "status_code=499, client canceled: context canceled", logs[0].Content)
 
 	var other map[string]interface{}
@@ -86,6 +89,39 @@ func TestRecordRelayErrorLogClientCanceled(t *testing.T) {
 	adminInfo, ok := other["admin_info"].(map[string]interface{})
 	require.True(t, ok)
 	require.Equal(t, []interface{}{"5"}, adminInfo["use_channel"])
+}
+
+func TestRecordRelayErrorLogUsesPromptTokensFallback(t *testing.T) {
+	db := setupRelayCancelControllerTestDB(t)
+	originalErrorLogEnabled := constant.ErrorLogEnabled
+	constant.ErrorLogEnabled = true
+	t.Cleanup(func() {
+		constant.ErrorLogEnabled = originalErrorLogEnabled
+	})
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Set("id", 2)
+	ctx.Set("username", "alice")
+	ctx.Set("token_name", "default")
+	ctx.Set("token_id", 18)
+	ctx.Set("original_model", "gpt-5.5")
+	ctx.Set("group", "auto")
+	ctx.Set("channel_id", 5)
+	ctx.Set("channel_name", "primary")
+	ctx.Set("channel_type", 1)
+	ctx.Set("use_channel", []string{"5"})
+	common.SetContextKey(ctx, constant.ContextKeyPromptTokens, 6789)
+
+	recordRelayErrorLog(ctx, types.NewErrorWithStatusCode(errors.New("upstream context length exceeded"), types.ErrorCodeBadResponseStatusCode, http.StatusBadRequest))
+
+	var logs []model.Log
+	require.NoError(t, db.Find(&logs).Error)
+	require.Len(t, logs, 1)
+	require.Equal(t, 6789, logs[0].PromptTokens)
+	require.Equal(t, 0, logs[0].CompletionTokens)
 }
 
 func setupRelayCancelControllerTestDB(t *testing.T) *gorm.DB {
