@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Code, Table, Plus, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
@@ -27,6 +27,7 @@ import { Textarea } from '@/components/ui/textarea'
 type JsonEditorProps = {
   value: string
   onChange: (value: string) => void
+  preferJsonWhenValuePresent?: boolean
   disabled?: boolean
   keyPlaceholder?: string
   valuePlaceholder?: string
@@ -43,9 +44,43 @@ type EditorRow = {
   value: string
 }
 
+type EditorMode = 'visual' | 'json'
+
+type JsonEditorState = {
+  mode: EditorMode
+  rows: EditorRow[]
+  draftValue: string
+  lastPropValue: string
+  preferJsonWhenValuePresent: boolean
+}
+
+function parseJsonToEditorRows(json: string): EditorRow[] {
+  try {
+    if (!json.trim()) return []
+    const parsed = JSON.parse(json)
+    return Object.entries(parsed).map(([key, val], index) => ({
+      id: `${Date.now()}-${index}`,
+      key,
+      value: typeof val === 'object' ? JSON.stringify(val) : String(val),
+    }))
+  } catch (_error) {
+    return []
+  }
+}
+
+function resolveMode(
+  value: string,
+  preferJsonWhenValuePresent: boolean,
+  currentMode: EditorMode = 'visual'
+): EditorMode {
+  if (!preferJsonWhenValuePresent) return currentMode
+  return value.trim() ? 'json' : 'visual'
+}
+
 export function JsonEditor({
   value,
   onChange,
+  preferJsonWhenValuePresent = false,
   disabled = false,
   keyPlaceholder,
   valuePlaceholder,
@@ -62,38 +97,41 @@ export function JsonEditor({
   const resolvedValuePlaceholder = valuePlaceholder ?? t('Value')
   const resolvedKeyLabel = keyLabel ?? t('Key')
   const resolvedValueLabel = valueLabel ?? t('Value')
-  const [mode, setMode] = useState<'visual' | 'json'>('visual')
-  const [rows, setRows] = useState<EditorRow[]>([])
-  const [jsonValue, setJsonValue] = useState(value)
+  const [editorState, setEditorState] = useState<JsonEditorState>(() => ({
+    mode: resolveMode(value, preferJsonWhenValuePresent),
+    rows: parseJsonToEditorRows(value),
+    draftValue: value,
+    lastPropValue: value,
+    preferJsonWhenValuePresent,
+  }))
 
-  const parseJsonToRows = (json: string) => {
-    try {
-      if (!json.trim()) {
-        setRows([])
-        return
-      }
-      const parsed = JSON.parse(json)
-      const newRows: EditorRow[] = Object.entries(parsed).map(
-        ([key, val], index) => ({
-          id: `${Date.now()}-${index}`,
-          key,
-          value: typeof val === 'object' ? JSON.stringify(val) : String(val),
-        })
-      )
-      setRows(newRows)
-    } catch (_error) {
-      // Invalid JSON, keep current rows
-    }
+  if (
+    value !== editorState.lastPropValue ||
+    preferJsonWhenValuePresent !== editorState.preferJsonWhenValuePresent
+  ) {
+    const isParentCatchingUp = value === editorState.draftValue
+    setEditorState(
+      isParentCatchingUp
+        ? {
+            ...editorState,
+            lastPropValue: value,
+            preferJsonWhenValuePresent,
+          }
+        : {
+            mode: resolveMode(
+              value,
+              preferJsonWhenValuePresent,
+              editorState.mode
+            ),
+            rows: parseJsonToEditorRows(value),
+            draftValue: value,
+            lastPropValue: value,
+            preferJsonWhenValuePresent,
+          }
+    )
   }
 
-  // Parse JSON to rows when value changes externally
-  useEffect(() => {
-    if (value !== jsonValue) {
-      setJsonValue(value)
-      parseJsonToRows(value)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value])
+  const { mode, rows, draftValue: jsonValue } = editorState
 
   const convertRowsToJson = (updatedRows: EditorRow[]): string => {
     if (updatedRows.length === 0) {
@@ -130,14 +168,17 @@ export function JsonEditor({
       value: '',
     }
     const updatedRows = [...rows, newRow]
-    setRows(updatedRows)
+    setEditorState((prev) => ({ ...prev, rows: updatedRows }))
   }
 
   const handleDeleteRow = (id: string) => {
     const updatedRows = rows.filter((row) => row.id !== id)
-    setRows(updatedRows)
     const json = convertRowsToJson(updatedRows)
-    setJsonValue(json)
+    setEditorState((prev) => ({
+      ...prev,
+      rows: updatedRows,
+      draftValue: json,
+    }))
     onChange(json)
   }
 
@@ -149,37 +190,55 @@ export function JsonEditor({
     const updatedRows = rows.map((row) =>
       row.id === id ? { ...row, [field]: newValue } : row
     )
-    setRows(updatedRows)
     const json = convertRowsToJson(updatedRows)
-    setJsonValue(json)
+    setEditorState((prev) => ({
+      ...prev,
+      rows: updatedRows,
+      draftValue: json,
+    }))
     onChange(json)
   }
 
   const handleJsonChange = (newJson: string) => {
-    setJsonValue(newJson)
+    const nextRows = parseJsonToEditorRows(newJson)
+    setEditorState((prev) => ({
+      ...prev,
+      rows: nextRows,
+      draftValue: newJson,
+    }))
     onChange(newJson)
-    parseJsonToRows(newJson)
   }
 
   const handleFillTemplate = () => {
     if (!template) return
     const templateJson = JSON.stringify(template, null, 2)
-    setJsonValue(templateJson)
+    const nextRows = parseJsonToEditorRows(templateJson)
+    setEditorState((prev) => ({
+      ...prev,
+      rows: nextRows,
+      draftValue: templateJson,
+    }))
     onChange(templateJson)
-    parseJsonToRows(templateJson)
   }
 
   const toggleMode = () => {
     if (mode === 'visual') {
       // Switching to JSON mode: sync rows to JSON
       const json = convertRowsToJson(rows)
-      setJsonValue(json)
+      setEditorState((prev) => ({
+        ...prev,
+        mode: 'json',
+        draftValue: json,
+      }))
       onChange(json)
-      setMode('json')
     } else {
       // Switching to visual mode: sync JSON to rows
-      parseJsonToRows(jsonValue)
-      setMode('visual')
+      const nextRows = parseJsonToEditorRows(jsonValue)
+      setEditorState((prev) => ({
+        ...prev,
+        mode: 'visual',
+        rows: nextRows,
+      }))
     }
   }
 

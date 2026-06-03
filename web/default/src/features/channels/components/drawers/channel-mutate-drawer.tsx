@@ -2757,6 +2757,7 @@ export function ChannelMutateDrawer({
                                 <JsonEditor
                                   value={field.value || ''}
                                   onChange={field.onChange}
+                                  preferJsonWhenValuePresent
                                   disabled={isSubmitting}
                                   keyPlaceholder='temperature'
                                   valuePlaceholder='0.7'
