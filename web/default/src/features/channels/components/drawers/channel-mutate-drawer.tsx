@@ -3213,9 +3213,10 @@ export function ChannelMutateDrawer({
                               />
                             </FormControl>
                             <FormDescription>
-                              {t(
-                                'Leave empty to use all cache tokens. 0.3 means 30% uses cache price and 70% uses normal input price.'
-                              )}
+                              留空表示使用全部缓存 token。若输入价换算成一样的价格，
+                              cached_tokens_ratio = (统一输入价 -
+                              上游缓存价) / (统一输入价 - 本站缓存价)。
+                              例如：r = (5 - 3) / (5 - 0.5) = 0.444444。
                             </FormDescription>
                             <FormMessage />
                           </FormItem>
