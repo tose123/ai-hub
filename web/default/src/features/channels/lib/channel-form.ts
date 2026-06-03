@@ -79,6 +79,12 @@ function isOptionalStatusCodeMapping(value: string | undefined): boolean {
   }
 }
 
+function isOptionalCachedTokensRatio(value: string | undefined): boolean {
+  if (!value?.trim()) return true
+  const ratio = Number(value)
+  return Number.isFinite(ratio) && ratio >= 0 && ratio <= 1
+}
+
 function isCodexCredential(value: string | undefined): boolean {
   try {
     const parsed = parseOptionalJson(value)
@@ -182,6 +188,13 @@ export const channelFormSchema = z
     pass_through_body_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
+    cached_tokens_ratio: z
+      .string()
+      .optional()
+      .refine(
+        isOptionalCachedTokensRatio,
+        'Cached tokens ratio must be between 0 and 1'
+      ),
     // Type-specific settings (stored in settings JSON)
     is_enterprise_account: z.boolean().optional(), // OpenRouter specific
     vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
@@ -300,6 +313,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   pass_through_body_enabled: false,
   system_prompt: '',
   system_prompt_override: false,
+  cached_tokens_ratio: '',
   // Type-specific settings
   is_enterprise_account: false,
   vertex_key_type: 'json',
@@ -336,6 +350,7 @@ export function transformChannelToFormDefaults(
     pass_through_body_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
+    cached_tokens_ratio: '',
   }
 
   if (channel.setting) {
@@ -348,6 +363,11 @@ export function transformChannelToFormDefaults(
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
+        cached_tokens_ratio:
+          typeof parsed.cached_tokens_ratio === 'number' &&
+          Number.isFinite(parsed.cached_tokens_ratio)
+            ? String(parsed.cached_tokens_ratio)
+            : '',
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -450,13 +470,17 @@ export function transformChannelToFormDefaults(
  * Build the setting JSON string from form extra settings
  */
 function buildSettingJSON(formData: ChannelFormValues): string {
-  const settingObj = {
+  const settingObj: Record<string, unknown> = {
     force_format: formData.force_format || false,
     thinking_to_content: formData.thinking_to_content || false,
     proxy: formData.proxy || '',
     pass_through_body_enabled: formData.pass_through_body_enabled || false,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
+  }
+  const cachedTokensRatio = formData.cached_tokens_ratio?.trim()
+  if (cachedTokensRatio) {
+    settingObj.cached_tokens_ratio = Number(cachedTokensRatio)
   }
   return JSON.stringify(settingObj)
 }

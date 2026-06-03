@@ -68,6 +68,14 @@ func cacheWriteTokensTotal(summary textQuotaSummary) int {
 	return summary.CacheCreationTokens
 }
 
+func splitTokensByCachedRatio(tokens decimal.Decimal, cachedRatio decimal.Decimal) (decimal.Decimal, decimal.Decimal) {
+	if tokens.IsZero() {
+		return decimal.Zero, decimal.Zero
+	}
+	cachedPart := tokens.Mul(cachedRatio)
+	return cachedPart, tokens.Sub(cachedPart)
+}
+
 func isLegacyClaudeDerivedOpenAIUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) bool {
 	if relayInfo == nil || usage == nil {
 		return false
@@ -241,6 +249,8 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	dCacheCreationRatio5m := decimal.NewFromFloat(summary.CacheCreationRatio5m)
 	dCacheCreationRatio1h := decimal.NewFromFloat(summary.CacheCreationRatio1h)
 	dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
+	cachedTokensRatio, _ := channelCachedTokensRatio(relayInfo)
+	dCachedTokensRatio := decimal.NewFromFloat(cachedTokensRatio)
 
 	ratio := dModelRatio.Mul(dGroupRatio)
 	summary.ToolCallSurchargeQuota = calculateTextToolCallSurcharge(ctx, relayInfo, &summary)
@@ -251,26 +261,35 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 
 		var cachedTokensWithRatio decimal.Decimal
 		if !dCacheTokens.IsZero() {
+			cachedTokensForCachePrice, cachedTokensForBasePrice := splitTokensByCachedRatio(dCacheTokens, dCachedTokensRatio)
 			if !summary.IsClaudeUsageSemantic && !legacyClaudeDerived {
-				baseTokens = baseTokens.Sub(dCacheTokens)
+				baseTokens = baseTokens.Sub(cachedTokensForCachePrice)
+			} else {
+				baseTokens = baseTokens.Add(cachedTokensForBasePrice)
 			}
-			cachedTokensWithRatio = dCacheTokens.Mul(dCacheRatio)
+			cachedTokensWithRatio = cachedTokensForCachePrice.Mul(dCacheRatio)
 		}
 
 		var cachedCreationTokensWithRatio decimal.Decimal
 		hasSplitCacheCreationTokens := summary.CacheCreationTokens5m > 0 || summary.CacheCreationTokens1h > 0
 		if !dCachedCreationTokens.IsZero() || hasSplitCacheCreationTokens {
 			if !summary.IsClaudeUsageSemantic && !legacyClaudeDerived {
-				baseTokens = baseTokens.Sub(dCachedCreationTokens)
-				cachedCreationTokensWithRatio = dCachedCreationTokens.Mul(dCacheCreationRatio)
+				cachedCreationTokensForCachePrice, _ := splitTokensByCachedRatio(dCachedCreationTokens, dCachedTokensRatio)
+				baseTokens = baseTokens.Sub(cachedCreationTokensForCachePrice)
+				cachedCreationTokensWithRatio = cachedCreationTokensForCachePrice.Mul(dCacheCreationRatio)
 			} else {
 				remaining := summary.CacheCreationTokens - summary.CacheCreationTokens5m - summary.CacheCreationTokens1h
 				if remaining < 0 {
 					remaining = 0
 				}
-				cachedCreationTokensWithRatio = decimal.NewFromInt(int64(remaining)).Mul(dCacheCreationRatio)
-				cachedCreationTokensWithRatio = cachedCreationTokensWithRatio.Add(decimal.NewFromInt(int64(summary.CacheCreationTokens5m)).Mul(dCacheCreationRatio5m))
-				cachedCreationTokensWithRatio = cachedCreationTokensWithRatio.Add(decimal.NewFromInt(int64(summary.CacheCreationTokens1h)).Mul(dCacheCreationRatio1h))
+				remainingCacheTokens, remainingBaseTokens := splitTokensByCachedRatio(decimal.NewFromInt(int64(remaining)), dCachedTokensRatio)
+				cacheCreation5mTokens, cacheCreation5mBaseTokens := splitTokensByCachedRatio(decimal.NewFromInt(int64(summary.CacheCreationTokens5m)), dCachedTokensRatio)
+				cacheCreation1hTokens, cacheCreation1hBaseTokens := splitTokensByCachedRatio(decimal.NewFromInt(int64(summary.CacheCreationTokens1h)), dCachedTokensRatio)
+
+				baseTokens = baseTokens.Add(remainingBaseTokens).Add(cacheCreation5mBaseTokens).Add(cacheCreation1hBaseTokens)
+				cachedCreationTokensWithRatio = remainingCacheTokens.Mul(dCacheCreationRatio)
+				cachedCreationTokensWithRatio = cachedCreationTokensWithRatio.Add(cacheCreation5mTokens.Mul(dCacheCreationRatio5m))
+				cachedCreationTokensWithRatio = cachedCreationTokensWithRatio.Add(cacheCreation1hTokens.Mul(dCacheCreationRatio1h))
 			}
 		}
 
@@ -342,6 +361,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, "上游无计费信息")
 	}
 	if originUsage != nil {
+		ApplyChannelCachedTokensRatioToUsage(relayInfo, usage)
 		ObserveChannelAffinityUsageCacheByRelayFormat(ctx, usage, relayInfo.GetFinalRequestRelayFormat())
 	}
 
@@ -355,7 +375,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
 			tieredUsedVars = billingexpr.UsedVars(snap.ExprString)
 		}
-		tieredOk, tieredQuota, tieredRes := TryTieredSettle(relayInfo, BuildTieredTokenParams(usage, summary.IsClaudeUsageSemantic, tieredUsedVars))
+		tieredOk, tieredQuota, tieredRes := TryTieredSettle(relayInfo, BuildTieredTokenParamsForRelay(relayInfo, usage, summary.IsClaudeUsageSemantic, tieredUsedVars))
 		if tieredOk {
 			tieredBillingApplied = true
 			tieredResult = tieredRes

@@ -945,6 +945,12 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
+	if channelParams.CachedTokensRatio != nil {
+		ratio := *channelParams.CachedTokensRatio
+		if ratio < 0 || ratio > 1 {
+			return fmt.Errorf("cached_tokens_ratio must be between 0 and 1")
+		}
+	}
 	return nil
 }
 

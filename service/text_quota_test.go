@@ -15,6 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func float64Ptr(v float64) *float64 {
+	return &v
+}
+
 func TestCalculateTextQuotaSummaryUnifiedForClaudeSemantic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
@@ -66,6 +70,89 @@ func TestCalculateTextQuotaSummaryUnifiedForClaudeSemantic(t *testing.T) {
 	require.Equal(t, messageSummary.CacheCreationTokens1h, chatSummary.CacheCreationTokens1h)
 	require.True(t, chatSummary.IsClaudeUsageSemantic)
 	require.Equal(t, 1488, chatSummary.Quota)
+}
+
+func TestCalculateTextQuotaSummaryAppliesChannelCachedTokensRatioOpenAI(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+
+	relayInfo := &relaycommon.RelayInfo{
+		OriginModelName: "gpt-4.1",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{
+				CachedTokensRatio: float64Ptr(0.3),
+			},
+		},
+		PriceData: types.PriceData{
+			ModelRatio:         1,
+			CompletionRatio:    1,
+			CacheRatio:         0.1,
+			CacheCreationRatio: 1.25,
+			GroupRatioInfo:     types.GroupRatioInfo{GroupRatio: 1},
+		},
+		StartTime: time.Now(),
+	}
+
+	usage := &dto.Usage{
+		PromptTokens:     1000,
+		CompletionTokens: 100,
+		PromptTokensDetails: dto.InputTokenDetails{
+			CachedTokens:         100,
+			CachedCreationTokens: 50,
+		},
+	}
+
+	summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+
+	// base: 1000 - 100*0.3 - 50*0.3 = 955
+	// cache read: 100*0.3*0.1 = 3
+	// cache write: 50*0.3*1.25 = 18.75
+	// completion: 100
+	require.Equal(t, 1077, summary.Quota)
+}
+
+func TestCalculateTextQuotaSummaryAppliesChannelCachedTokensRatioClaudeSplitWrites(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+
+	relayInfo := &relaycommon.RelayInfo{
+		FinalRequestRelayFormat: types.RelayFormatClaude,
+		OriginModelName:         "claude-3-7-sonnet",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{
+				CachedTokensRatio: float64Ptr(0.5),
+			},
+		},
+		PriceData: types.PriceData{
+			ModelRatio:           1,
+			CompletionRatio:      1,
+			CacheRatio:           0.1,
+			CacheCreationRatio:   1,
+			CacheCreation5mRatio: 2,
+			CacheCreation1hRatio: 3,
+			GroupRatioInfo:       types.GroupRatioInfo{GroupRatio: 1},
+		},
+		StartTime: time.Now(),
+	}
+
+	usage := &dto.Usage{
+		PromptTokens:     100,
+		CompletionTokens: 0,
+		PromptTokensDetails: dto.InputTokenDetails{
+			CachedTokens:         100,
+			CachedCreationTokens: 50,
+		},
+		ClaudeCacheCreation5mTokens: 10,
+		ClaudeCacheCreation1hTokens: 20,
+	}
+
+	summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+
+	// base: 100 + read normal 50 + generic write normal 10 + 5m normal 5 + 1h normal 10 = 175
+	// cache priced: read 5 + generic write 10 + 5m 10 + 1h 30 = 55
+	require.Equal(t, 230, summary.Quota)
 }
 
 func TestCalculateTextQuotaSummaryUsesSplitClaudeCacheCreationRatios(t *testing.T) {

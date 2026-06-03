@@ -25,7 +25,7 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 	cc5m := float64(usage.PromptTokensDetails.CachedCreationTokens)
 	cc1h := float64(0)
 
-	if usage.UsageSemantic == "anthropic" {
+	if isClaudeUsageSemantic {
 		cc1h = float64(usage.ClaudeCacheCreation1hTokens)
 		cc5m = float64(usage.ClaudeCacheCreation5mTokens)
 	}
@@ -86,6 +86,39 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 		AI:   ai,
 		AO:   ao,
 	}
+}
+
+func BuildTieredTokenParamsForRelay(relayInfo *relaycommon.RelayInfo, usage *dto.Usage, isClaudeUsageSemantic bool, usedVars map[string]bool) billingexpr.TokenParams {
+	params := BuildTieredTokenParams(usage, isClaudeUsageSemantic, usedVars)
+	ratio, _ := channelCachedTokensRatio(relayInfo)
+	return applyCachedTokensRatioToTieredParams(params, usedVars, ratio)
+}
+
+func applyCachedTokensRatioToTieredParams(params billingexpr.TokenParams, usedVars map[string]bool, ratio float64) billingexpr.TokenParams {
+	if ratio >= defaultCachedTokensRatio {
+		return params
+	}
+	if ratio < 0 {
+		ratio = defaultCachedTokensRatio
+	}
+
+	if usedVars["cr"] && params.CR > 0 {
+		adjusted := params.CR * ratio
+		params.P += params.CR - adjusted
+		params.CR = adjusted
+	}
+	if usedVars["cc"] && params.CC > 0 {
+		adjusted := params.CC * ratio
+		params.P += params.CC - adjusted
+		params.CC = adjusted
+	}
+	if usedVars["cc1h"] && params.CC1h > 0 {
+		adjusted := params.CC1h * ratio
+		params.P += params.CC1h - adjusted
+		params.CC1h = adjusted
+	}
+
+	return params
 }
 
 // TryTieredSettle checks if the request uses tiered_expr billing and, if so,

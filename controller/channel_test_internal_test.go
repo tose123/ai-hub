@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
@@ -68,6 +69,41 @@ func TestBuildTestLogOtherInjectsTieredInfo(t *testing.T) {
 	require.Equal(t, "tiered_expr", other["billing_mode"])
 	require.Equal(t, "base", other["matched_tier"])
 	require.NotEmpty(t, other["expr_b64"])
+}
+
+func TestValidateChannelCachedTokensRatio(t *testing.T) {
+	tests := []struct {
+		name    string
+		ratio   float64
+		wantErr bool
+	}{
+		{name: "zero", ratio: 0, wantErr: false},
+		{name: "decimal", ratio: 0.3, wantErr: false},
+		{name: "one", ratio: 1, wantErr: false},
+		{name: "negative", ratio: -0.1, wantErr: true},
+		{name: "above one", ratio: 1.1, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setting, err := common.Marshal(dto.ChannelSettings{
+				CachedTokensRatio: &tt.ratio,
+			})
+			require.NoError(t, err)
+
+			channel := &model.Channel{
+				Type:    1,
+				Setting: common.GetPointer(string(setting)),
+			}
+
+			err = validateChannel(channel, false)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {

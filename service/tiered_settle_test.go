@@ -524,6 +524,79 @@ func TestBuildTieredTokenParams_Claude_WithCache(t *testing.T) {
 	}
 }
 
+func TestBuildTieredTokenParamsForRelay_ChannelCachedTokensRatioGPT(t *testing.T) {
+	usage := &dto.Usage{
+		PromptTokens:     1000,
+		CompletionTokens: 0,
+		PromptTokensDetails: dto.InputTokenDetails{
+			CachedTokens:         100,
+			CachedCreationTokens: 50,
+		},
+	}
+	expr := `tier("base", p * 1 + cr * 0.1 + cc * 1.25)`
+	relayInfo := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{
+				CachedTokensRatio: float64Ptr(0.3),
+			},
+		},
+	}
+
+	params := BuildTieredTokenParamsForRelay(relayInfo, usage, false, billingexpr.UsedVars(expr))
+
+	if math.Abs(params.P-955) > 1e-9 {
+		t.Fatalf("P = %f, want 955", params.P)
+	}
+	if math.Abs(params.CR-30) > 1e-9 {
+		t.Fatalf("CR = %f, want 30", params.CR)
+	}
+	if math.Abs(params.CC-15) > 1e-9 {
+		t.Fatalf("CC = %f, want 15", params.CC)
+	}
+	if params.Len != 1000 {
+		t.Fatalf("Len = %f, want 1000", params.Len)
+	}
+}
+
+func TestBuildTieredTokenParamsForRelay_ChannelCachedTokensRatioClaude(t *testing.T) {
+	usage := &dto.Usage{
+		PromptTokens:     800,
+		CompletionTokens: 0,
+		UsageSemantic:    "anthropic",
+		PromptTokensDetails: dto.InputTokenDetails{
+			CachedTokens: 100,
+		},
+		ClaudeCacheCreation5mTokens: 50,
+		ClaudeCacheCreation1hTokens: 20,
+	}
+	expr := `tier("base", p * 1 + cr * 0.1 + cc * 1.25 + cc1h * 2)`
+	relayInfo := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{
+				CachedTokensRatio: float64Ptr(0.3),
+			},
+		},
+	}
+
+	params := BuildTieredTokenParamsForRelay(relayInfo, usage, true, billingexpr.UsedVars(expr))
+
+	if math.Abs(params.P-919) > 1e-9 {
+		t.Fatalf("P = %f, want 919", params.P)
+	}
+	if math.Abs(params.CR-30) > 1e-9 {
+		t.Fatalf("CR = %f, want 30", params.CR)
+	}
+	if math.Abs(params.CC-15) > 1e-9 {
+		t.Fatalf("CC = %f, want 15", params.CC)
+	}
+	if math.Abs(params.CC1h-6) > 1e-9 {
+		t.Fatalf("CC1h = %f, want 6", params.CC1h)
+	}
+	if params.Len != 970 {
+		t.Fatalf("Len = %f, want 970", params.Len)
+	}
+}
+
 func TestBuildTieredTokenParams_GPT_AudioOutput(t *testing.T) {
 	usage := &dto.Usage{
 		PromptTokens:     1000,

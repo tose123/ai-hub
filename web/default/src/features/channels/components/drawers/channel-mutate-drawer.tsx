@@ -218,6 +218,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.thinking_to_content ||
     values.pass_through_body_enabled ||
     values.system_prompt_override ||
+    values.cached_tokens_ratio?.trim() ||
     values.claude_beta_query ||
     values.upstream_model_update_check_enabled ||
     values.upstream_model_update_auto_sync_enabled ||
@@ -3189,6 +3190,37 @@ export function ChannelMutateDrawer({
                           )}
                         />
                       </div>
+
+                      <FormField
+                        control={form.control}
+                        name='cached_tokens_ratio'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Cached tokens ratio')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                type='number'
+                                min='0'
+                                max='1'
+                                step='0.01'
+                                inputMode='decimal'
+                                placeholder='1'
+                                {...field}
+                                value={field.value ?? ''}
+                                onChange={(e) =>
+                                  field.onChange(e.target.value)
+                                }
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'Leave empty to use all cache tokens. 0.3 means 30% uses cache price and 70% uses normal input price.'
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
                       <FormField
                         control={form.control}
