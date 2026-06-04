@@ -591,6 +591,108 @@ func TestRedactSensitiveInfoOpenAIResponsesRequest(t *testing.T) {
 	assertNotContains(t, string(request.Input), "sk-responsesimagenotesecret123456", "sk-responsesfilenotesecret123456")
 }
 
+func TestRedactSensitiveInfoOpenAIPreservesEncryptedContent(t *testing.T) {
+	encryptedContent := "gAAAAABl.sk-opaque-encrypted-content"
+	plainSecret := "sk-opaque-secret-value123456"
+	request := dto.OpenAIResponsesRequest{
+		Input: mustMarshal(t, []map[string]any{{
+			"role": "assistant",
+			"content": []map[string]any{
+				{"type": "reasoning", "encrypted_content": encryptedContent, "note": "reasoning note " + plainSecret},
+				{"type": "input_text", "text": "responses input " + plainSecret},
+			},
+		}}),
+		Metadata: mustMarshal(t, map[string]any{
+			"encrypted_content": encryptedContent,
+			"note":              "metadata " + plainSecret,
+		}),
+	}
+
+	if changed := RedactSensitiveInfoOpenAIResponsesRequest(&request); !changed {
+		t.Fatal("expected changed to be true")
+	}
+
+	joined := strings.Join([]string{string(request.Input), string(request.Metadata)}, "\n")
+	assertContains(t, joined, encryptedContent, "[API_KEY_REDACTED]")
+	assertNotContains(t, joined, "reasoning note "+plainSecret, "responses input "+plainSecret, "metadata "+plainSecret)
+}
+
+func TestRedactSensitiveInfoOpenAIRequestPreservesEncryptedContent(t *testing.T) {
+	encryptedContent := "gAAAAABl.sk-opaque-encrypted-content"
+	plainSecret := "sk-opaque-secret-value123456"
+	request := dto.GeneralOpenAIRequest{
+		Input: []any{
+			map[string]any{"type": "reasoning", "encrypted_content": encryptedContent, "note": "input note " + plainSecret},
+			"input " + plainSecret,
+		},
+		Reasoning: mustMarshal(t, map[string]any{
+			"encrypted_content": encryptedContent,
+			"note":              "reasoning raw " + plainSecret,
+		}),
+		ExtraBody: mustMarshal(t, map[string]any{
+			"items": []map[string]any{{
+				"encrypted_content": encryptedContent,
+				"note":              "extra raw " + plainSecret,
+			}},
+		}),
+	}
+
+	if changed := RedactSensitiveInfoOpenAIRequest(&request); !changed {
+		t.Fatal("expected changed to be true")
+	}
+
+	body := mustMarshalString(t, request)
+	assertContains(t, body, encryptedContent, "[API_KEY_REDACTED]")
+	assertNotContains(t, body, "input note "+plainSecret, "input "+plainSecret, "reasoning raw "+plainSecret, "extra raw "+plainSecret)
+}
+
+func TestRedactSensitiveInfoOpenAIResponsesRawFieldsPreserveEncryptedContent(t *testing.T) {
+	secret := "sk-" + strings.Repeat("a", 20)
+	encryptedContent := "gAAAAABl." + secret
+	request := dto.OpenAIResponsesRequest{
+		Tools: mustMarshal(t, []map[string]any{{
+			"encrypted_content": encryptedContent,
+			"note":              "tool " + secret,
+		}}),
+		Metadata: mustMarshal(t, map[string]any{
+			"encrypted_content": encryptedContent,
+			"note":              "metadata " + secret,
+		}),
+	}
+
+	if changed := RedactSensitiveInfoOpenAIResponsesRequest(&request); !changed {
+		t.Fatal("expected changed to be true")
+	}
+
+	joined := strings.Join([]string{string(request.Tools), string(request.Metadata)}, "\n")
+	assertContains(t, joined, encryptedContent, "[API_KEY_REDACTED]")
+	assertNotContains(t, joined, "tool "+secret, "metadata "+secret)
+}
+
+func TestRedactSensitiveInfoOpenAIResponsesCompactionPreservesEncryptedContent(t *testing.T) {
+	secret := "sk-" + strings.Repeat("b", 20)
+	encryptedContent := "gAAAAABl." + secret
+	request := dto.OpenAIResponsesCompactionRequest{
+		Input: mustMarshal(t, []map[string]any{{
+			"type":              "reasoning",
+			"encrypted_content": encryptedContent,
+			"note":              "input " + secret,
+		}}),
+		Instructions: mustMarshal(t, map[string]any{
+			"encrypted_content": encryptedContent,
+			"note":              "instructions " + secret,
+		}),
+	}
+
+	if changed := RedactSensitiveInfoOpenAIResponsesCompactionRequest(&request); !changed {
+		t.Fatal("expected changed to be true")
+	}
+
+	joined := strings.Join([]string{string(request.Input), string(request.Instructions)}, "\n")
+	assertContains(t, joined, encryptedContent, "[API_KEY_REDACTED]")
+	assertNotContains(t, joined, "input "+secret, "instructions "+secret)
+}
+
 func TestRedactSensitiveInfoEmbeddingRequest(t *testing.T) {
 	request := dto.EmbeddingRequest{
 		Input: []any{"embedding api_key: sk-embeddinginputsecret123456", "safe"},
@@ -748,6 +850,33 @@ func TestRedactSensitiveInfoClaudeRequest(t *testing.T) {
 	assertContains(t, joined, "claude-image-sk-claude-message-image-secret")
 }
 
+func TestRedactSensitiveInfoClaudeOpaqueThinkingFields(t *testing.T) {
+	thinking := "gAAAAABl.sk-opaqueencryptedthinkingpayload123456"
+	signature := "sig.sk-opaquesignaturepayload123456"
+	redactedThinkingData := "gAAAAABl.sk-redactedthinkingpayload123456"
+	text := "plain text api_key: sk-textpayloadabcdefghijkl"
+
+	request := dto.ClaudeRequest{
+		Prompt: "prompt api_key: sk-promptpayloadabcdefghijkl",
+		System: []any{
+			map[string]any{"type": "thinking", "thinking": thinking, "signature": signature, "note": "note api_key: sk-systemnoteabcdefghijkl"},
+			map[string]any{"type": "redacted_thinking", "data": redactedThinkingData, "note": "note api_key: sk-redactednoteabcdefghijkl"},
+		},
+		Messages: []dto.ClaudeMessage{{Content: []dto.ClaudeMediaMessage{
+			{Type: "thinking", Thinking: &thinking, Signature: signature},
+			{Type: "text", Text: &text},
+		}}},
+	}
+
+	if changed := RedactSensitiveInfoClaudeRequest(&request); !changed {
+		t.Fatal("expected changed to be true")
+	}
+
+	joined := mustMarshalString(t, request)
+	assertContains(t, joined, thinking, signature, redactedThinkingData, "[API_KEY_REDACTED]")
+	assertNotContains(t, joined, "sk-promptpayloadabcdefghijkl", "sk-textpayloadabcdefghijkl", "sk-systemnoteabcdefghijkl", "sk-redactednoteabcdefghijkl")
+}
+
 func TestRedactSensitiveInfoGeminiChatRequest(t *testing.T) {
 	request := dto.GeminiChatRequest{
 		Contents: []dto.GeminiChatContent{{Parts: []dto.GeminiPart{
@@ -791,6 +920,41 @@ func TestRedactSensitiveInfoGeminiChatRequest(t *testing.T) {
 	assertContains(t, joined, "gemini-inline-sk-gemini-inline-secret")
 	assertContains(t, joined, "gs://bucket/sk-gemini-file-secret")
 	assertContains(t, joined, "thought-signature-sk-opaque-secret", "function-id-sk-opaque-secret", "will-continue-sk-protocol-unchanged", "scheduling-sk-protocol-unchanged", "lookup-sk-protocol-unchanged", "application/json-sk-protocol-unchanged", "TEXT-sk-protocol-unchanged", "high-sk-protocol-unchanged")
+}
+
+func TestRedactSensitiveInfoGeminiPreservesOpaqueRawFields(t *testing.T) {
+	secret := "sk-" + strings.Repeat("c", 20)
+	opaquePayload := "gemini-opaque-" + secret
+	request := dto.GeminiChatRequest{
+		Contents: []dto.GeminiChatContent{{Parts: []dto.GeminiPart{{
+			FunctionCall: &dto.FunctionCall{Arguments: map[string]any{
+				"inlineData": map[string]any{"mimeType": "image/png", "data": opaquePayload, "note": "inline " + secret},
+			}},
+		}, {
+			FunctionResponse: &dto.GeminiFunctionResponse{
+				Response: map[string]any{
+					"fileData": map[string]any{"mimeType": "image/png", "fileUri": "gs://bucket/" + opaquePayload, "note": "file " + secret},
+				},
+				Parts: mustMarshal(t, []map[string]any{{
+					"thoughtSignature": opaquePayload,
+					"note":             "parts " + secret,
+				}}),
+			},
+		}}}},
+		Tools: mustMarshal(t, []map[string]any{{
+			"inlineData":       map[string]any{"mime_type": "image/png", "data": opaquePayload, "note": "tool inline " + secret},
+			"thoughtSignature": opaquePayload,
+			"note":             "tool " + secret,
+		}}),
+	}
+
+	if changed := RedactSensitiveInfoGeminiChatRequest(&request); !changed {
+		t.Fatal("expected changed to be true")
+	}
+
+	joined := mustMarshalString(t, request)
+	assertContains(t, joined, opaquePayload, "gs://bucket/"+opaquePayload, "[API_KEY_REDACTED]")
+	assertNotContains(t, joined, "inline "+secret, "file "+secret, "parts "+secret, "tool inline "+secret, "tool "+secret)
 }
 
 func TestRedactSensitiveInfoGeminiEmbeddingRequest(t *testing.T) {

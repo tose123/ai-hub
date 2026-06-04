@@ -128,7 +128,7 @@ func RedactSensitiveInfoOpenAIRequest(request *dto.GeneralOpenAIRequest) bool {
 
 	changed := false
 	redactField := func(value any) any {
-		redacted, fieldChanged := RedactSensitiveInfoAny(value)
+		redacted, fieldChanged := redactOpenAIRequestAny(value)
 		if fieldChanged {
 			changed = true
 		}
@@ -236,6 +236,9 @@ func RedactSensitiveInfoOpenAIResponsesRequest(request *dto.OpenAIResponsesReque
 
 	changed := false
 	redactRaw := func(raw []byte, preserve func(map[string]any, string) bool) []byte {
+		if preserve == nil {
+			preserve = shouldPreserveOpenAIOpaqueField
+		}
 		redacted, fieldChanged := redactSensitiveInfoRawJSON(raw, preserve)
 		if fieldChanged {
 			changed = true
@@ -287,7 +290,7 @@ func RedactSensitiveInfoOpenAIResponsesCompactionRequest(request *dto.OpenAIResp
 		request.Input = redacted
 		changed = true
 	}
-	if redacted, fieldChanged := redactSensitiveInfoRawJSON(request.Instructions, nil); fieldChanged {
+	if redacted, fieldChanged := redactSensitiveInfoRawJSON(request.Instructions, shouldPreserveOpenAIOpaqueField); fieldChanged {
 		request.Instructions = redacted
 		changed = true
 	}
@@ -479,7 +482,7 @@ func RedactSensitiveInfoGeminiChatRequest(request *dto.GeminiChatRequest) bool {
 	if request.SystemInstructions != nil && redactGeminiChatContent(request.SystemInstructions) {
 		changed = true
 	}
-	if redacted, fieldChanged := redactSensitiveInfoRawJSON(request.Tools, nil); fieldChanged {
+	if redacted, fieldChanged := redactGeminiRawJSON(request.Tools); fieldChanged {
 		request.Tools = redacted
 		changed = true
 	}
@@ -715,7 +718,7 @@ func redactOpenAIRequestContentAnyWithContext(v any, contentType, mediaField str
 			currentContentType = itemType
 		}
 		for key, item := range value {
-			if shouldPreserveOpenAIContentMediaField(currentContentType, mediaField, key) {
+			if shouldPreserveOpenAIContentMediaField(currentContentType, mediaField, key) || shouldPreserveOpenAIOpaqueField(value, key) {
 				redactedMap[key] = item
 				continue
 			}
@@ -775,7 +778,7 @@ func redactOpenAIRequestRawJSON(raw []byte) ([]byte, bool) {
 		return raw, false
 	}
 
-	redacted, changed := RedactSensitiveInfoAny(value)
+	redacted, changed := redactOpenAIRequestAny(value)
 	if !changed {
 		return raw, false
 	}
@@ -786,6 +789,10 @@ func redactOpenAIRequestRawJSON(raw []byte) ([]byte, bool) {
 	}
 
 	return data, true
+}
+
+func redactOpenAIRequestAny(v any) (any, bool) {
+	return redactSensitiveInfoAnyWithPreserve(v, shouldPreserveOpenAIOpaqueField)
 }
 
 func redactSensitiveInfoRawJSON(raw []byte, preserveField func(map[string]any, string) bool) ([]byte, bool) {
@@ -914,6 +921,9 @@ func redactSensitiveInfoAnyWithPreservePath(v any, preserveField func([]map[stri
 }
 
 func shouldPreserveOpenAIResponsesInputFieldPath(parents []map[string]any, item map[string]any, key string, value any) bool {
+	if shouldPreserveOpenAIOpaqueField(item, key) {
+		return true
+	}
 	contentType, _ := item["type"].(string)
 	if contentType == "input_image" && key == "image_url" {
 		_, isString := value.(string)
@@ -925,6 +935,48 @@ func shouldPreserveOpenAIResponsesInputFieldPath(parents []map[string]any, item 
 	}
 
 	return false
+}
+
+func shouldPreserveOpenAIOpaqueField(item map[string]any, key string) bool {
+	if key != "encrypted_content" {
+		return false
+	}
+	_, isString := item[key].(string)
+	return isString
+}
+
+func shouldPreserveGeminiOpaqueField(item map[string]any, key string) bool {
+	if key == "thoughtSignature" || key == "thought_signature" {
+		_, isString := item[key].(string)
+		return isString
+	}
+
+	if key == "data" {
+		if _, isString := item[key].(string); !isString {
+			return false
+		}
+		if _, ok := item["mimeType"].(string); ok {
+			return true
+		}
+		if _, ok := item["mime_type"].(string); ok {
+			return true
+		}
+	}
+
+	if key == "fileUri" || key == "file_uri" {
+		_, isString := item[key].(string)
+		return isString
+	}
+
+	return false
+}
+
+func redactGeminiAny(v any) (any, bool) {
+	return redactSensitiveInfoAnyWithPreserve(v, shouldPreserveGeminiOpaqueField)
+}
+
+func redactGeminiRawJSON(raw []byte) ([]byte, bool) {
+	return redactSensitiveInfoRawJSON(raw, shouldPreserveGeminiOpaqueField)
 }
 
 func shouldPreserveImageRequestExtraField(key string) bool {
@@ -1007,7 +1059,7 @@ func redactClaudeContentAnyWithContext(v any, contentType string, inSource bool)
 			currentContentType = itemType
 		}
 		for key, item := range value {
-			if shouldPreserveClaudeMediaSourceLeaf(currentContentType, inSource, key) {
+			if shouldPreserveClaudeOpaqueContentField(currentContentType, inSource, key) {
 				redactedMap[key] = item
 				continue
 			}
@@ -1034,12 +1086,6 @@ func redactClaudeMediaMessage(message *dto.ClaudeMediaMessage) bool {
 	if message.Text != nil {
 		if redacted, fieldChanged := RedactSensitiveInfoText(*message.Text); fieldChanged {
 			*message.Text = redacted
-			changed = true
-		}
-	}
-	if message.Thinking != nil {
-		if redacted, fieldChanged := RedactSensitiveInfoText(*message.Thinking); fieldChanged {
-			*message.Thinking = redacted
 			changed = true
 		}
 	}
@@ -1079,6 +1125,19 @@ func isClaudeMediaContentType(contentType string) bool {
 
 func shouldPreserveClaudeMediaSourceLeaf(contentType string, inSource bool, key string) bool {
 	return inSource && isClaudeMediaContentType(contentType) && (key == "data" || key == "url")
+}
+
+func shouldPreserveClaudeOpaqueContentField(contentType string, inSource bool, key string) bool {
+	if shouldPreserveClaudeMediaSourceLeaf(contentType, inSource, key) {
+		return true
+	}
+	if key == "signature" {
+		return true
+	}
+	if contentType == "thinking" && key == "thinking" {
+		return true
+	}
+	return contentType == "redacted_thinking" && key == "data"
 }
 
 func redactGeminiGenerationConfig(config *dto.GeminiChatGenerationConfig) bool {
@@ -1135,19 +1194,19 @@ func redactGeminiPart(part *dto.GeminiPart) bool {
 		changed = true
 	}
 	if part.FunctionCall != nil {
-		if redacted, fieldChanged := RedactSensitiveInfoAny(part.FunctionCall.Arguments); fieldChanged {
+		if redacted, fieldChanged := redactGeminiAny(part.FunctionCall.Arguments); fieldChanged {
 			part.FunctionCall.Arguments = redacted
 			changed = true
 		}
 	}
 	if part.FunctionResponse != nil {
-		if redacted, fieldChanged := RedactSensitiveInfoAny(part.FunctionResponse.Response); fieldChanged {
+		if redacted, fieldChanged := redactGeminiAny(part.FunctionResponse.Response); fieldChanged {
 			if response, ok := redacted.(map[string]any); ok {
 				part.FunctionResponse.Response = response
 				changed = true
 			}
 		}
-		if redacted, fieldChanged := redactSensitiveInfoRawJSON(part.FunctionResponse.Parts, nil); fieldChanged {
+		if redacted, fieldChanged := redactGeminiRawJSON(part.FunctionResponse.Parts); fieldChanged {
 			part.FunctionResponse.Parts = redacted
 			changed = true
 		}
@@ -1178,6 +1237,6 @@ func redactOpenAIRequestToolParameters(parameters any) (any, bool) {
 		}
 		return redacted, true
 	default:
-		return RedactSensitiveInfoAny(parameters)
+		return redactOpenAIRequestAny(parameters)
 	}
 }
