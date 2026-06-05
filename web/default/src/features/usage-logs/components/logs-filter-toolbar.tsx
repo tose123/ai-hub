@@ -34,6 +34,7 @@ import {
   DrawerTrigger,
 } from '@/components/ui/drawer'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { DataTableViewOptions } from '@/components/data-table'
 
 interface LogsFilterToolbarProps<TData> {
@@ -47,7 +48,9 @@ interface LogsFilterToolbarProps<TData> {
   hasActiveFilters: boolean
   hasAdvancedActiveFilters?: boolean
   advancedFilterCount?: number
+  autoRefresh: boolean
   searchLoading?: boolean
+  onAutoRefreshChange: (checked: boolean) => void
   onReset: () => void
   onSearch: () => void
   className?: string
@@ -92,6 +95,19 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
   const activeAdvancedCount =
     props.advancedFilterCount ?? (props.hasAdvancedActiveFilters ? 1 : 0)
   const activeMobileFilterCount = props.mobileFilterCount ?? activeAdvancedCount
+  const autoRefreshControl = (
+    <div className='border-border/70 bg-background/70 flex h-8 shrink-0 items-center gap-2 rounded-md border px-2.5'>
+      <span className='text-muted-foreground text-xs whitespace-nowrap'>
+        {t('Auto refresh')}
+      </span>
+      <Switch
+        size='sm'
+        checked={props.autoRefresh}
+        onCheckedChange={props.onAutoRefreshChange}
+        aria-label={t('Auto refresh')}
+      />
+    </div>
+  )
 
   const handleMobileReset = () => {
     props.onReset()
@@ -113,7 +129,8 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
 
           <div className='mt-2 flex flex-col gap-2'>
             {props.stats}
-            <div className='flex items-center justify-end gap-1.5'>
+            <div className='flex flex-wrap items-center justify-end gap-1.5'>
+              <div className='me-auto'>{autoRefreshControl}</div>
               <DrawerTrigger asChild>
                 <Button
                   type='button'
@@ -228,6 +245,7 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
             </Button>
           )}
 
+          {autoRefreshControl}
           <Button
             type='button'
             variant='outline'

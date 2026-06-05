@@ -40,6 +40,8 @@ type TaskLogsFilters = DrawingLogFilters | TaskLogFilters
 interface TaskLogsFilterBarProps<TData> {
   table: Table<TData>
   logCategory: TaskLikeLogCategory
+  autoRefresh: boolean
+  onAutoRefreshChange: (checked: boolean) => void
 }
 
 function getFilterValue(
@@ -216,7 +218,9 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
         </>
       }
       mobileFilterCount={[filterValue, filters.channel].filter(Boolean).length}
+      autoRefresh={props.autoRefresh}
       hasActiveFilters={hasAdditionalFilters}
+      onAutoRefreshChange={props.onAutoRefreshChange}
       onSearch={handleApply}
       searchLoading={fetchingLogs > 0}
       onReset={handleReset}

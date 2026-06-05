@@ -61,6 +61,8 @@ function isLogTypeValue(value: string): value is LogTypeValue {
 
 interface CommonLogsFilterBarProps<TData> {
   table: Table<TData>
+  autoRefresh: boolean
+  onAutoRefreshChange: (checked: boolean) => void
 }
 
 export function CommonLogsFilterBar<TData>(
@@ -358,7 +360,9 @@ export function CommonLogsFilterBar<TData>(
       }
       hasAdvancedActiveFilters={hasExpandedFilters}
       advancedFilterCount={expandedFilterCount}
+      autoRefresh={props.autoRefresh}
       hasActiveFilters={hasAdditionalFilters}
+      onAutoRefreshChange={props.onAutoRefreshChange}
       onSearch={handleApply}
       searchLoading={fetchingLogs > 0}
       onReset={handleReset}

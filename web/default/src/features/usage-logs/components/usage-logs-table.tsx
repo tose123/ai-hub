@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import {
@@ -68,6 +68,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const isAdmin = useIsAdmin()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const searchParams = route.useSearch()
+  const [autoRefresh, setAutoRefresh] = useState(false)
 
   const {
     columnFilters,
@@ -141,6 +142,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       }
       return undefined
     },
+    refetchInterval: autoRefresh ? 30_000 : false,
   })
 
   const logs = data?.items || []
@@ -191,9 +193,18 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       tableHeaderClassName='bg-muted/30 sticky top-0 z-10'
       toolbar={
         isCommon ? (
-          <CommonLogsFilterBar table={table} />
+          <CommonLogsFilterBar
+            table={table}
+            autoRefresh={autoRefresh}
+            onAutoRefreshChange={setAutoRefresh}
+          />
         ) : (
-          <TaskLogsFilterBar table={table} logCategory={logCategory} />
+          <TaskLogsFilterBar
+            table={table}
+            logCategory={logCategory}
+            autoRefresh={autoRefresh}
+            onAutoRefreshChange={setAutoRefresh}
+          />
         )
       }
       renderRow={(row) => {
