@@ -716,6 +716,14 @@ func RecordChannelAffinity(c *gin.Context, channelID int) {
 		ttlSeconds = 3600
 	}
 	cache := getChannelAffinityCache()
+	cachedChannelID, found, err := cache.Get(cacheKey)
+	if err != nil {
+		common.SysError(fmt.Sprintf("channel affinity cache get before set failed: key=%s, err=%v", cacheKey, err))
+		return
+	}
+	if found && cachedChannelID == channelID {
+		return
+	}
 	if err := cache.SetWithTTL(cacheKey, channelID, time.Duration(ttlSeconds)*time.Second); err != nil {
 		common.SysError(fmt.Sprintf("channel affinity cache set failed: key=%s, err=%v", cacheKey, err))
 	}
