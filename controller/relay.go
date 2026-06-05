@@ -413,6 +413,9 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 
 func recordRelayErrorLog(c *gin.Context, err *types.NewAPIError) {
 	if constant.ErrorLogEnabled && types.IsRecordErrorLog(err) {
+		if types.IsClientCanceledError(err) {
+			common.MarkClientGone(c)
+		}
 		// 保存错误日志到mysql中
 		userId := c.GetInt("id")
 		tokenName := c.GetString("token_name")

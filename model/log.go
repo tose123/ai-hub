@@ -51,6 +51,19 @@ const (
 	LogTypeRefund  = 6
 )
 
+func enrichRequestLogOther(c *gin.Context, other map[string]interface{}) map[string]interface{} {
+	if other == nil {
+		other = make(map[string]interface{})
+	}
+	other["client_canceled"] = common.IsClientGone(c)
+	if c != nil && c.Request != nil {
+		if userAgent := c.Request.UserAgent(); userAgent != "" {
+			other["user_agent"] = userAgent
+		}
+	}
+	return other
+}
+
 func formatUserLogs(logs []*Log, startIdx int) {
 	for i := range logs {
 		logs[i].ChannelName = ""
@@ -61,6 +74,7 @@ func formatUserLogs(logs []*Log, startIdx int) {
 			delete(otherMap, "admin_info")
 			// delete(otherMap, "reject_reason")
 			delete(otherMap, "stream_status")
+			delete(otherMap, "user_agent")
 		}
 		logs[i].Other = common.MapToJsonStr(otherMap)
 		logs[i].Id = startIdx + i + 1
@@ -149,6 +163,7 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
+	other = enrichRequestLogOther(c, other)
 	otherStr := common.MapToJsonStr(other)
 	// 判断是否需要记录 IP
 	needRecordIp := false
@@ -212,6 +227,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
+	params.Other = enrichRequestLogOther(c, params.Other)
 	otherStr := common.MapToJsonStr(params.Other)
 	// 判断是否需要记录 IP
 	needRecordIp := false

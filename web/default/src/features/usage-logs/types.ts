@@ -110,6 +110,8 @@ export interface LogOtherData {
     admin_username?: string
     admin_id?: number | string
   }
+  user_agent?: string
+  client_canceled?: boolean
   request_path?: string
   request_conversion?: string[]
   ws?: boolean

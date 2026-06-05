@@ -553,8 +553,9 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           useTime > 0 && log.completion_tokens > 0
             ? log.completion_tokens / useTime
             : null
-        const timeVariant = getResponseTimeColor(useTime, log.completion_tokens)
-        const frtVariant = frt ? getFirstResponseTimeColor(frt / 1000) : null
+          const timeVariant = getResponseTimeColor(useTime, log.completion_tokens)
+          const frtVariant = frt ? getFirstResponseTimeColor(frt / 1000) : null
+          const firstResponseVariant = frtVariant ?? 'neutral'
 
         const timingBgMap: Record<string, string> = {
           success:
@@ -579,14 +580,19 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               />
               {log.is_stream &&
                 (frt != null && frt > 0 ? (
-                  <StatusBadge
-                    label={formatUseTime(frt / 1000)}
-                    variant={frtVariant as StatusBadgeProps['variant']}
-                    size='sm'
-                    showDot={false}
-                    copyable={false}
-                    className={cn('font-mono', timingBgMap[frtVariant])}
-                  />
+                    <StatusBadge
+                      label={formatUseTime(frt / 1000)}
+                      variant={
+                        firstResponseVariant as StatusBadgeProps['variant']
+                      }
+                      size='sm'
+                      showDot={false}
+                      copyable={false}
+                      className={cn(
+                        'font-mono',
+                        timingBgMap[firstResponseVariant]
+                      )}
+                    />
                 ) : (
                   <StatusBadge
                     label='N/A'
@@ -611,6 +617,21 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                   </>
                 )}
               </span>
+              {other?.client_canceled === true && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <CircleAlert className='size-3 text-amber-500' />
+                      }
+                    ></TooltipTrigger>
+                    <TooltipContent>
+                      <span>{t('Client canceled the request')}</span>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+
               {log.is_stream &&
                 other?.stream_status &&
                 other.stream_status.status !== 'ok' && (

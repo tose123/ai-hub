@@ -55,6 +55,7 @@ func TestRecordRelayErrorLogClientCanceled(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	ctx.Request.Header.Set("User-Agent", "relay-cancel-test")
 	ctx.Set("id", 2)
 	ctx.Set("username", "alice")
 	ctx.Set("token_name", "default")
@@ -86,9 +87,20 @@ func TestRecordRelayErrorLogClientCanceled(t *testing.T) {
 	require.Equal(t, "client_canceled", other["error_code"])
 	require.Equal(t, float64(types.StatusClientClosedRequest), other["status_code"])
 	require.Equal(t, "/v1/responses", other["request_path"])
+	require.Equal(t, true, other["client_canceled"])
+	require.Equal(t, "relay-cancel-test", other["user_agent"])
 	adminInfo, ok := other["admin_info"].(map[string]interface{})
 	require.True(t, ok)
 	require.Equal(t, []interface{}{"5"}, adminInfo["use_channel"])
+
+	userLogs, total, err := model.GetUserLogs(2, model.LogTypeError, 0, 0, "", "", 0, 10, "", "", "")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, userLogs, 1)
+	var userOther map[string]interface{}
+	require.NoError(t, common.Unmarshal([]byte(userLogs[0].Other), &userOther))
+	require.Equal(t, true, userOther["client_canceled"])
+	require.NotContains(t, userOther, "user_agent")
 }
 
 func TestRecordRelayErrorLogUsesPromptTokensFallback(t *testing.T) {
@@ -122,6 +134,47 @@ func TestRecordRelayErrorLogUsesPromptTokensFallback(t *testing.T) {
 	require.Len(t, logs, 1)
 	require.Equal(t, 6789, logs[0].PromptTokens)
 	require.Equal(t, 0, logs[0].CompletionTokens)
+}
+
+func TestRecordConsumeLogAddsRequestMetadata(t *testing.T) {
+	db := setupRelayCancelControllerTestDB(t)
+	originalLogConsumeEnabled := common.LogConsumeEnabled
+	t.Cleanup(func() {
+		common.LogConsumeEnabled = originalLogConsumeEnabled
+	})
+	common.LogConsumeEnabled = true
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Request.Header.Set("User-Agent", "consume-log-test")
+	ctx.Set("username", "alice")
+
+	model.RecordConsumeLog(ctx, 2, model.RecordConsumeLogParams{
+		ChannelId:        5,
+		PromptTokens:     10,
+		CompletionTokens: 20,
+		ModelName:        "gpt-5.5",
+		TokenName:        "default",
+		Quota:            30,
+		Content:          "consume",
+		TokenId:          18,
+		UseTimeSeconds:   1,
+		IsStream:         true,
+		Group:            "auto",
+		Other: map[string]interface{}{
+			"existing": "ok",
+		},
+	})
+
+	var logs []model.Log
+	require.NoError(t, db.Find(&logs).Error)
+	require.Len(t, logs, 1)
+	var other map[string]interface{}
+	require.NoError(t, common.Unmarshal([]byte(logs[0].Other), &other))
+	require.Equal(t, false, other["client_canceled"])
+	require.Equal(t, "consume-log-test", other["user_agent"])
+	require.Equal(t, "ok", other["existing"])
 }
 
 func setupRelayCancelControllerTestDB(t *testing.T) *gorm.DB {

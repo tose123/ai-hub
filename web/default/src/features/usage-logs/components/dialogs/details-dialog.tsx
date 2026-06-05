@@ -616,6 +616,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   }
                 />
               )}
+
+              {props.isAdmin && other?.user_agent && (
+                <DetailRow
+                  label={t('User Agent')}
+                  value={other.user_agent}
+                  mono
+                />
+              )}
             </div>
 
             {/* Request conversion (admin only, not for refund) */}
