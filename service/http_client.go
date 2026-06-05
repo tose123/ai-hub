@@ -40,14 +40,13 @@ func InitHttpClient() {
 	}
 
 	transport := &http.Transport{
-		MaxIdleConns:          common.RelayMaxIdleConns,
-		MaxIdleConnsPerHost:   common.RelayMaxIdleConnsPerHost,
-		ForceAttemptHTTP2:     true,
-		Proxy:                 http.ProxyFromEnvironment, // Support HTTP_PROXY, HTTPS_PROXY, NO_PROXY env vars
-		DialContext:           dialer.DialContext,
-		TLSHandshakeTimeout:   time.Duration(common.RelayTLSHandshakeTimeout) * time.Second,
-		ResponseHeaderTimeout: time.Duration(common.RelayResponseHeaderTimeout) * time.Second,
-		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConns:        common.RelayMaxIdleConns,
+		MaxIdleConnsPerHost: common.RelayMaxIdleConnsPerHost,
+		ForceAttemptHTTP2:   true,
+		Proxy:               http.ProxyFromEnvironment, // Support HTTP_PROXY, HTTPS_PROXY, NO_PROXY env vars
+		DialContext:         dialer.DialContext,
+		TLSHandshakeTimeout: time.Duration(common.RelayTLSHandshakeTimeout) * time.Second,
+		IdleConnTimeout:     90 * time.Second,
 	}
 	if common.TLSInsecureSkipVerify {
 		transport.TLSClientConfig = common.InsecureTLSConfig
@@ -120,14 +119,13 @@ func NewProxyHttpClient(proxyURL string) (*http.Client, error) {
 	switch parsedURL.Scheme {
 	case "http", "https":
 		transport := &http.Transport{
-			MaxIdleConns:          common.RelayMaxIdleConns,
-			MaxIdleConnsPerHost:   common.RelayMaxIdleConnsPerHost,
-			ForceAttemptHTTP2:     true,
-			Proxy:                 http.ProxyURL(parsedURL),
-			DialContext:           baseDialer.DialContext,
-			TLSHandshakeTimeout:   time.Duration(common.RelayTLSHandshakeTimeout) * time.Second,
-			ResponseHeaderTimeout: time.Duration(common.RelayResponseHeaderTimeout) * time.Second,
-			IdleConnTimeout:       90 * time.Second,
+			MaxIdleConns:        common.RelayMaxIdleConns,
+			MaxIdleConnsPerHost: common.RelayMaxIdleConnsPerHost,
+			ForceAttemptHTTP2:   true,
+			Proxy:               http.ProxyURL(parsedURL),
+			DialContext:         baseDialer.DialContext,
+			TLSHandshakeTimeout: time.Duration(common.RelayTLSHandshakeTimeout) * time.Second,
+			IdleConnTimeout:     90 * time.Second,
 		}
 		if common.TLSInsecureSkipVerify {
 			transport.TLSClientConfig = common.InsecureTLSConfig
@@ -179,9 +177,8 @@ func NewProxyHttpClient(proxyURL string) (*http.Client, error) {
 				defer cancel()
 				return ctxDialer.DialContext(ctxTimeout, network, addr)
 			},
-			TLSHandshakeTimeout:   time.Duration(common.RelayTLSHandshakeTimeout) * time.Second,
-			ResponseHeaderTimeout: time.Duration(common.RelayResponseHeaderTimeout) * time.Second,
-			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout: time.Duration(common.RelayTLSHandshakeTimeout) * time.Second,
+			IdleConnTimeout:     90 * time.Second,
 		}
 		if common.TLSInsecureSkipVerify {
 			transport.TLSClientConfig = common.InsecureTLSConfig

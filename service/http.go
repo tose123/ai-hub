@@ -42,7 +42,7 @@ func ShouldCopyUpstreamHeader(c *gin.Context, k string, v []string) bool {
 }
 
 func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
-	if c.Writer == nil {
+	if c.Writer == nil || common.IsClientGone(c) {
 		return
 	}
 

@@ -113,6 +113,19 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	ctx = context.WithValue(ctx, "stop_chan", stopChan)
 
+	if c != nil && c.Request != nil {
+		wg.Add(1)
+		gopool.Go(func() {
+			defer wg.Done()
+			select {
+			case <-c.Request.Context().Done():
+				logger.LogInfo(c, "client disconnected; continuing upstream stream read for usage")
+			case <-ctx.Done():
+			case <-stopChan:
+			}
+		})
+	}
+
 	// Handle ping data sending with improved error handling
 	if pingEnabled && pingTicker != nil {
 		wg.Add(1)
@@ -220,9 +233,6 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				return
 			case <-ctx.Done():
 				return
-			case <-c.Request.Context().Done():
-				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
-				return
 			default:
 			}
 
@@ -274,8 +284,6 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
 	case <-stopChan:
 		// EndReason already set by the goroutine that triggered stopChan
-	case <-c.Request.Context().Done():
-		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
 	}
 
 	if info.StreamStatus.IsNormalEnd() && !info.StreamStatus.HasErrors() {

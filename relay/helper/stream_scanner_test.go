@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -627,6 +629,48 @@ func TestStreamScannerHandler_StreamStatus_PreInitialized(t *testing.T) {
 
 	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
 	assert.Equal(t, 1, info.StreamStatus.TotalErrorCount())
+}
+
+func TestStreamScannerHandler_ClientCanceledContinuesReadingUpstream(t *testing.T) {
+	t.Parallel()
+
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() {
+		constant.StreamingTimeout = oldTimeout
+	})
+
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		fmt.Fprint(pw, "data: first\n")
+		time.Sleep(50 * time.Millisecond)
+		fmt.Fprint(pw, "data: second\n")
+		fmt.Fprint(pw, "data: [DONE]\n")
+	}()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	reqCtx, cancelClient := context.WithCancel(req.Context())
+	c.Request = req.WithContext(reqCtx)
+
+	resp := &http.Response{Body: pr}
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+
+	var count atomic.Int64
+	var firstSeen atomic.Bool
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+		count.Add(1)
+		if data == "first" && firstSeen.CompareAndSwap(false, true) {
+			cancelClient()
+		}
+	})
+
+	assert.Equal(t, int64(2), count.Load())
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
+	assert.True(t, common.IsClientGone(c))
 }
 
 func TestStreamScannerHandler_PingInterleavesWithSlowUpstream(t *testing.T) {

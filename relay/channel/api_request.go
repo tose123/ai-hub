@@ -485,12 +485,33 @@ func requestContextErr(c *gin.Context) error {
 	if c == nil || c.Request == nil {
 		return nil
 	}
-	return c.Request.Context().Err()
+	err := c.Request.Context().Err()
+	if err != nil {
+		common2.MarkClientGone(c)
+	}
+	return err
 }
 
 func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	return doRequest(c, req, info)
 }
+
+type responseBodyWithCancel struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+func (b *responseBodyWithCancel) Close() error {
+	err := b.ReadCloser.Close()
+	b.once.Do(b.cancel)
+	return err
+}
+
+func relayHeaderTimeoutError(timeout time.Duration) error {
+	return fmt.Errorf("response header timeout after %s", timeout)
+}
+
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	if ctxErr := requestContextErr(c); ctxErr != nil {
 		logger.LogInfo(c, "client canceled request before upstream request: "+ctxErr.Error())
@@ -499,18 +520,17 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 	var client *http.Client
 	var err error
-	if info.ChannelSetting.Proxy != "" {
-		client, err = service.NewProxyHttpClient(info.ChannelSetting.Proxy)
+	proxyURL := ""
+	if info != nil && info.ChannelMeta != nil {
+		proxyURL = info.ChannelSetting.Proxy
+	}
+	if proxyURL != "" {
+		client, err = service.NewProxyHttpClient(proxyURL)
 		if err != nil {
 			return nil, fmt.Errorf("new proxy http client failed: %w", err)
 		}
 	} else {
 		client = service.GetHttpClient()
-	}
-
-	transport, ok := client.Transport.(*http.Transport)
-	if ok && transport != nil {
-		transport.ResponseHeaderTimeout = helper.GetRelayResponseHeaderTimeout(info.UpstreamModelName, req.URL.Path)
 	}
 
 	var stopPinger context.CancelFunc
@@ -531,33 +551,87 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
-	if c != nil && c.Request != nil {
-		req = req.WithContext(c.Request.Context())
+	attemptCtx, cancelAttempt := context.WithCancel(context.Background())
+	upstreamModelName := ""
+	if info != nil && info.ChannelMeta != nil {
+		upstreamModelName = info.UpstreamModelName
 	}
+	headerTimeout := helper.GetRelayResponseHeaderTimeout(upstreamModelName, req.URL.Path)
+	var headerMu sync.Mutex
+	headerTimedOut := false
+	headerDone := false
+	var headerTimer *time.Timer
+	if headerTimeout > 0 {
+		headerTimer = time.AfterFunc(headerTimeout, func() {
+			headerMu.Lock()
+			if headerDone {
+				headerMu.Unlock()
+				return
+			}
+			headerTimedOut = true
+			headerMu.Unlock()
+			cancelAttempt()
+		})
+	}
+	req = req.WithContext(attemptCtx)
 
 	resp, err := client.Do(req)
+	headerMu.Lock()
+	headerDone = true
+	timedOut := headerTimedOut
+	headerMu.Unlock()
 	if err != nil {
-		if ctxErr := requestContextErr(c); ctxErr != nil {
-			logger.LogInfo(c, "client canceled request during upstream request: "+ctxErr.Error())
-			return nil, types.NewClientCanceledError(ctxErr)
+		if headerTimer != nil {
+			headerTimer.Stop()
+		}
+		cancelAttempt()
+		if timedOut {
+			timeoutErr := relayHeaderTimeoutError(headerTimeout)
+			logger.LogError(c, fmt.Sprintf("response header timeout canceled upstream request after %s: %s", headerTimeout, err.Error()))
+			return nil, types.NewError(timeoutErr, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: response header timeout"))
 		}
 		if errors.Is(err, context.Canceled) {
-			logger.LogInfo(c, "client canceled request during upstream request: "+err.Error())
-			return nil, types.NewClientCanceledError(err)
+			logger.LogError(c, "upstream request canceled: "+err.Error())
+			return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 		}
 		logger.LogError(c, "do request failed: "+err.Error())
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 	}
+	if headerTimer != nil {
+		headerTimer.Stop()
+	}
+	if timedOut {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		cancelAttempt()
+		timeoutErr := relayHeaderTimeoutError(headerTimeout)
+		logger.LogError(c, fmt.Sprintf("response header timeout canceled upstream request after %s after response headers were received", headerTimeout))
+		return nil, types.NewError(timeoutErr, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: response header timeout"))
+	}
 	if resp == nil {
+		cancelAttempt()
 		return nil, errors.New("resp is nil")
+	}
+	if resp.Body != nil {
+		resp.Body = &responseBodyWithCancel{
+			ReadCloser: resp.Body,
+			cancel:     cancelAttempt,
+		}
+	} else {
+		cancelAttempt()
 	}
 
 	if upID := resp.Header.Get(common2.RequestIdKey); upID != "" {
 		c.Set(common2.UpstreamRequestIdKey, upID)
 	}
 
-	_ = req.Body.Close()
-	_ = c.Request.Body.Close()
+	if req.Body != nil {
+		_ = req.Body.Close()
+	}
+	if c != nil && c.Request != nil && c.Request.Body != nil {
+		_ = c.Request.Body.Close()
+	}
 	return resp, nil
 }
 

@@ -19,8 +19,26 @@ import (
 
 const KeyRequestBody = "key_request_body"
 const KeyBodyStorage = "key_body_storage"
+const KeyClientGone = "client_gone"
 
 var ErrRequestBodyTooLarge = errors.New("request body too large")
+
+func MarkClientGone(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	c.Set(KeyClientGone, true)
+}
+
+func IsClientGone(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	if c.GetBool(KeyClientGone) {
+		return true
+	}
+	return c.Request != nil && c.Request.Context().Err() != nil
+}
 
 func IsRequestBodyTooLargeError(err error) bool {
 	if err == nil {
