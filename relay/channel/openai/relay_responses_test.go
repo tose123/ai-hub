@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,11 @@ import (
 
 func TestOaiResponsesStreamHandlerConvertsChatCompletionChunks(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() {
+		constant.StreamingTimeout = oldTimeout
+	})
 
 	body := strings.Join([]string{
 		`data: {"id":"chatcmpl-dummy","object":"chat.completion.chunk","created":1780632412,"model":"gpt-5.4-mini","choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}`,
@@ -30,10 +36,11 @@ func TestOaiResponsesStreamHandlerConvertsChatCompletionChunks(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 
 	info := &relaycommon.RelayInfo{
-		StartTime:         time.Unix(1780632412, 0),
-		IsStream:          true,
-		UpstreamModelName: "gpt-5.4-mini",
-		ChannelMeta:       &relaycommon.ChannelMeta{},
+		StartTime: time.Unix(1780632412, 0),
+		IsStream:  true,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "gpt-5.4-mini",
+		},
 	}
 	resp := &http.Response{
 		StatusCode: http.StatusOK,

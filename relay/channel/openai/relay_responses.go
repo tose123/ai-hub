@@ -17,6 +17,69 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const responsesCompatMessageItemID = "msg_0"
+
+type responsesCompatTextDeltaEvent struct {
+	Type         string `json:"type"`
+	ItemID       string `json:"item_id"`
+	OutputIndex  int    `json:"output_index"`
+	ContentIndex int    `json:"content_index"`
+	Delta        string `json:"delta"`
+}
+
+type responsesCompatReasoningDeltaEvent struct {
+	Type         string `json:"type"`
+	ItemID       string `json:"item_id"`
+	OutputIndex  int    `json:"output_index"`
+	SummaryIndex int    `json:"summary_index"`
+	Delta        string `json:"delta"`
+}
+
+type responsesCompatCompletedEvent struct {
+	Type     string                           `json:"type"`
+	Response responsesCompatCompletedResponse `json:"response"`
+}
+
+type responsesCompatCompletedResponse struct {
+	ID        string                  `json:"id"`
+	Object    string                  `json:"object"`
+	CreatedAt int64                   `json:"created_at"`
+	Status    string                  `json:"status"`
+	Model     string                  `json:"model"`
+	Output    []responsesCompatOutput `json:"output"`
+	Usage     *responsesCompatUsage   `json:"usage,omitempty"`
+}
+
+type responsesCompatOutput struct {
+	Type    string                         `json:"type"`
+	ID      string                         `json:"id"`
+	Status  string                         `json:"status"`
+	Role    string                         `json:"role"`
+	Content []responsesCompatOutputContent `json:"content,omitempty"`
+}
+
+type responsesCompatOutputContent struct {
+	Type        string `json:"type"`
+	Text        string `json:"text"`
+	Annotations []any  `json:"annotations"`
+}
+
+type responsesCompatUsage struct {
+	InputTokens         int                              `json:"input_tokens"`
+	OutputTokens        int                              `json:"output_tokens"`
+	TotalTokens         int                              `json:"total_tokens"`
+	InputTokensDetails  *responsesCompatInputDetails     `json:"input_tokens_details,omitempty"`
+	OutputTokensDetails *responsesCompatCompletionDetail `json:"output_tokens_details,omitempty"`
+}
+
+type responsesCompatInputDetails struct {
+	CachedTokens int `json:"cached_tokens"`
+}
+
+type responsesCompatCompletionDetail struct {
+	ReasoningTokens int `json:"reasoning_tokens"`
+}
+
 func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
@@ -78,6 +141,11 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	var usage = &dto.Usage{}
 	var responseTextBuilder strings.Builder
+	var chatCompatUsed bool
+	var responsesCompletedSeen bool
+	var chatResponseID string
+	var chatCreatedAt int64
+	var chatModel string
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -88,9 +156,34 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Error(err)
 			return
 		}
+		if streamResponse.Type == "" {
+			handled, err := handleChatCompletionChunkInResponsesStream(
+				c,
+				data,
+				usage,
+				&responseTextBuilder,
+				&chatCompatUsed,
+				&chatResponseID,
+				&chatCreatedAt,
+				&chatModel,
+			)
+			if err != nil {
+				logger.LogError(c, "failed to handle chat completion chunk in responses stream: "+err.Error())
+				sr.Error(err)
+				return
+			}
+			if handled {
+				return
+			}
+			err = fmt.Errorf("responses stream event missing type")
+			logger.LogError(c, err.Error()+": "+data)
+			sr.Error(err)
+			return
+		}
 		sendResponsesStreamData(c, streamResponse, data)
 		switch streamResponse.Type {
 		case "response.completed":
+			responsesCompletedSeen = true
 			if streamResponse.Response != nil {
 				if streamResponse.Response.Usage != nil {
 					if streamResponse.Response.Usage.InputTokens != 0 {
@@ -159,5 +252,210 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 
+	if chatCompatUsed && !responsesCompletedSeen {
+		if chatResponseID == "" {
+			chatResponseID = helper.GetResponseID(c)
+		}
+		if chatCreatedAt == 0 && !info.StartTime.IsZero() {
+			chatCreatedAt = info.StartTime.Unix()
+		}
+		if chatModel == "" {
+			chatModel = info.UpstreamModelName
+		}
+		if err := sendResponsesCompatCompletedEvent(c, chatResponseID, chatCreatedAt, chatModel, responseTextBuilder.String(), usage); err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+		}
+	}
+
 	return usage, nil
+}
+
+func handleChatCompletionChunkInResponsesStream(
+	c *gin.Context,
+	data string,
+	usage *dto.Usage,
+	responseTextBuilder *strings.Builder,
+	chatCompatUsed *bool,
+	chatResponseID *string,
+	chatCreatedAt *int64,
+	chatModel *string,
+) (bool, error) {
+	var chatChunk dto.ChatCompletionsStreamResponse
+	if err := common.UnmarshalJsonStr(data, &chatChunk); err != nil {
+		return false, err
+	}
+	if chatChunk.Object != "chat.completion.chunk" {
+		return false, nil
+	}
+
+	*chatCompatUsed = true
+	if chatChunk.Id != "" {
+		*chatResponseID = strings.TrimPrefix(chatChunk.Id, "chatcmpl-")
+		if !strings.HasPrefix(*chatResponseID, "resp_") {
+			*chatResponseID = "resp_" + *chatResponseID
+		}
+	}
+	if chatChunk.Created != 0 {
+		*chatCreatedAt = chatChunk.Created
+	}
+	if chatChunk.Model != "" {
+		*chatModel = chatChunk.Model
+	}
+	applyChatCompletionsUsageToResponsesUsage(usage, chatChunk.Usage)
+
+	for _, choice := range chatChunk.Choices {
+		content := choice.Delta.GetContentString()
+		if content != "" {
+			responseTextBuilder.WriteString(content)
+			if err := sendResponsesCompatTextDelta(c, content); err != nil {
+				return true, err
+			}
+		}
+		reasoning := choice.Delta.GetReasoningContent()
+		if reasoning != "" {
+			responseTextBuilder.WriteString(reasoning)
+			if err := sendResponsesCompatReasoningDelta(c, reasoning); err != nil {
+				return true, err
+			}
+		}
+	}
+	return true, nil
+}
+
+func applyChatCompletionsUsageToResponsesUsage(dst *dto.Usage, src *dto.Usage) {
+	if dst == nil || src == nil {
+		return
+	}
+	if src.PromptTokens != 0 {
+		dst.PromptTokens = src.PromptTokens
+		dst.InputTokens = src.PromptTokens
+	}
+	if src.InputTokens != 0 {
+		dst.PromptTokens = src.InputTokens
+		dst.InputTokens = src.InputTokens
+	}
+	if src.CompletionTokens != 0 {
+		dst.CompletionTokens = src.CompletionTokens
+		dst.OutputTokens = src.CompletionTokens
+	}
+	if src.OutputTokens != 0 {
+		dst.CompletionTokens = src.OutputTokens
+		dst.OutputTokens = src.OutputTokens
+	}
+	if src.TotalTokens != 0 {
+		dst.TotalTokens = src.TotalTokens
+	}
+	if src.PromptTokensDetails.CachedTokens != 0 {
+		dst.PromptTokensDetails.CachedTokens = src.PromptTokensDetails.CachedTokens
+	}
+	if src.InputTokensDetails != nil {
+		dst.InputTokensDetails = src.InputTokensDetails
+		if src.InputTokensDetails.CachedTokens != 0 {
+			dst.PromptTokensDetails.CachedTokens = src.InputTokensDetails.CachedTokens
+		}
+	}
+	if src.CompletionTokenDetails.ReasoningTokens != 0 {
+		dst.CompletionTokenDetails.ReasoningTokens = src.CompletionTokenDetails.ReasoningTokens
+	}
+}
+
+func sendResponsesCompatTextDelta(c *gin.Context, delta string) error {
+	event := responsesCompatTextDeltaEvent{
+		Type:         "response.output_text.delta",
+		ItemID:       responsesCompatMessageItemID,
+		OutputIndex:  0,
+		ContentIndex: 0,
+		Delta:        delta,
+	}
+	return sendResponsesCompatRawEvent(c, event.Type, event)
+}
+
+func sendResponsesCompatReasoningDelta(c *gin.Context, delta string) error {
+	event := responsesCompatReasoningDeltaEvent{
+		Type:         "response.reasoning_summary_text.delta",
+		ItemID:       responsesCompatMessageItemID,
+		OutputIndex:  0,
+		SummaryIndex: 0,
+		Delta:        delta,
+	}
+	return sendResponsesCompatRawEvent(c, event.Type, event)
+}
+
+func sendResponsesCompatCompletedEvent(c *gin.Context, responseID string, createdAt int64, model string, text string, usage *dto.Usage) error {
+	content := make([]responsesCompatOutputContent, 0, 1)
+	if text != "" {
+		content = append(content, responsesCompatOutputContent{
+			Type:        "output_text",
+			Text:        text,
+			Annotations: []any{},
+		})
+	}
+	event := responsesCompatCompletedEvent{
+		Type: "response.completed",
+		Response: responsesCompatCompletedResponse{
+			ID:        responseID,
+			Object:    "response",
+			CreatedAt: createdAt,
+			Status:    "completed",
+			Model:     model,
+			Output: []responsesCompatOutput{
+				{
+					Type:    "message",
+					ID:      responsesCompatMessageItemID,
+					Status:  "completed",
+					Role:    "assistant",
+					Content: content,
+				},
+			},
+			Usage: responsesCompatUsageFromUsage(usage),
+		},
+	}
+	return sendResponsesCompatRawEvent(c, event.Type, event)
+}
+
+func responsesCompatUsageFromUsage(usage *dto.Usage) *responsesCompatUsage {
+	if usage == nil {
+		return nil
+	}
+	inputTokens := usage.InputTokens
+	if inputTokens == 0 {
+		inputTokens = usage.PromptTokens
+	}
+	outputTokens := usage.OutputTokens
+	if outputTokens == 0 {
+		outputTokens = usage.CompletionTokens
+	}
+	totalTokens := usage.TotalTokens
+	if totalTokens == 0 {
+		totalTokens = inputTokens + outputTokens
+	}
+	if inputTokens == 0 && outputTokens == 0 && totalTokens == 0 {
+		return nil
+	}
+
+	compatUsage := &responsesCompatUsage{
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  totalTokens,
+	}
+	cachedTokens := usage.PromptTokensDetails.CachedTokens
+	if usage.InputTokensDetails != nil && usage.InputTokensDetails.CachedTokens != 0 {
+		cachedTokens = usage.InputTokensDetails.CachedTokens
+	}
+	if cachedTokens != 0 {
+		compatUsage.InputTokensDetails = &responsesCompatInputDetails{CachedTokens: cachedTokens}
+	}
+	if usage.CompletionTokenDetails.ReasoningTokens != 0 {
+		compatUsage.OutputTokensDetails = &responsesCompatCompletionDetail{ReasoningTokens: usage.CompletionTokenDetails.ReasoningTokens}
+	}
+	return compatUsage
+}
+
+func sendResponsesCompatRawEvent(c *gin.Context, eventType string, event any) error {
+	data, err := common.Marshal(event)
+	if err != nil {
+		return err
+	}
+	sendResponsesStreamData(c, dto.ResponsesStreamResponse{Type: eventType}, string(data))
+	return nil
 }
