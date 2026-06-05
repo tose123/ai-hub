@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import {
+  formatTokens,
   formatUseTime,
   formatLogQuota,
   formatTimestampToDate,
@@ -572,7 +573,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           <div className='flex flex-col gap-1'>
             <div className='flex items-center gap-1.5'>
               <StatusBadge
-                label={formatUseTime(useTime)}
+                label={formatUseTime(useTime, 0)}
                 variant={timeVariant as StatusBadgeProps['variant']}
                 size='sm'
                 copyable={false}
@@ -692,8 +693,8 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         return (
           <div className='flex flex-col gap-0.5'>
             <span className='font-mono text-xs font-medium tabular-nums'>
-              {promptTokens.toLocaleString()} /{' '}
-              {completionTokens.toLocaleString()}
+              {formatTokens(promptTokens)} /{' '}
+              {formatTokens(completionTokens)}
             </span>
             {(cacheReadTokens > 0 || cacheWriteTokens > 0) && (
               <div className='flex items-center gap-1 text-[11px]'>

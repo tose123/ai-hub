@@ -122,8 +122,8 @@ export function getTimeColor(
 export function getFirstResponseTimeColor(
   seconds: number
 ): 'success' | 'warning' | 'danger' {
-  if (seconds < 5) return 'success'
-  if (seconds < 10) return 'warning'
+  if (seconds <= 8) return 'success'
+  if (seconds <= 16) return 'warning'
   return 'danger'
 }
 
@@ -133,8 +133,8 @@ export function getFirstResponseTimeColor(
 export function getThroughputColor(
   tokensPerSecond: number
 ): 'success' | 'warning' | 'danger' {
-  if (tokensPerSecond >= 30) return 'success'
-  if (tokensPerSecond >= 15) return 'warning'
+  if (tokensPerSecond >= 20) return 'success'
+  if (tokensPerSecond >= 10) return 'warning'
   return 'danger'
 }
 
