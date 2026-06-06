@@ -1,0 +1,4 @@
+interface:
+  display_name: "同步 newapi main"
+  short_description: "拉取上游 newapi/main 并合并到本地 main"
+  default_prompt: "使用 $newapi-main-sync 拉取 newapi/main 并合并到本地 main，安全处理无关冲突，遇到无法决定的冲突时列出方案给我选择。"
