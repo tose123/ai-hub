@@ -176,6 +176,7 @@ var RelayVideoResponseHeaderTimeout int
 var RelayDialTimeout int
 var RelayTLSHandshakeTimeout int
 
+var RelayIdleConnTimeout int // unit is second
 var RelayMaxIdleConns int
 var RelayMaxIdleConnsPerHost int
 

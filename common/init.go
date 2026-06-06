@@ -107,6 +107,7 @@ func InitEnv() {
 	RelayVideoResponseHeaderTimeout = GetEnvOrDefault("RELAY_VIDEO_RESPONSE_HEADER_TIMEOUT", 1800)
 	RelayDialTimeout = GetEnvOrDefault("RELAY_DIAL_TIMEOUT", 10)
 	RelayTLSHandshakeTimeout = GetEnvOrDefault("RELAY_TLS_HANDSHAKE_TIMEOUT", 10)
+	RelayIdleConnTimeout = GetEnvOrDefault("RELAY_IDLE_CONN_TIMEOUT", 90)
 	RelayMaxIdleConns = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS", 500)
 	RelayMaxIdleConnsPerHost = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS_PER_HOST", 100)
 
@@ -140,6 +141,7 @@ func initConstantEnv() {
 	constant.StreamScannerMaxBufferMB = GetEnvOrDefault("STREAM_SCANNER_MAX_BUFFER_MB", 128)
 	// MaxRequestBodyMB 请求体最大大小（解压后），用于防止超大请求/zip bomb导致内存暴涨
 	constant.MaxRequestBodyMB = GetEnvOrDefault("MAX_REQUEST_BODY_MB", 128)
+	constant.AnonymousRequestBodyLimitKB = GetEnvOrDefault("ANONYMOUS_REQUEST_BODY_LIMIT_KB", 512)
 	// ForceStreamOption 覆盖请求参数，强制返回usage信息
 	constant.ForceStreamOption = GetEnvOrDefaultBool("FORCE_STREAM_OPTION", true)
 	constant.CountToken = GetEnvOrDefaultBool("CountToken", true)
