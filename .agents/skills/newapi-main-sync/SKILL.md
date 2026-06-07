@@ -1,6 +1,6 @@
 ---
 name: newapi-main-sync
-description: Fetch upstream newapi/main, merge it into the local main branch, safely resolve unrelated conflicts, and ask the user to choose when conflicts are ambiguous.
+description: Fetch upstream newapi/main, merge it into local main, safely resolve unrelated conflicts, summarize backend/frontend updates after sync, and recommend key test areas.
 ---
 
 # Newapi Main Sync
@@ -42,12 +42,13 @@ Never run destructive commands such as `git reset --hard`, `git checkout -- <pat
 Fetch the latest upstream `main`:
 
 ```bash
+git rev-parse HEAD
 git fetch newapi main
 git rev-parse --short newapi/main
 git log --oneline --left-right --cherry-pick main...newapi/main
 ```
 
-Summarize whether local `main` is behind, ahead, diverged, or already up to date.
+Save the pre-merge local `HEAD` as `LOCAL_BEFORE` and the fetched upstream commit as `UPSTREAM_HEAD`. Summarize whether local `main` is behind, ahead, diverged, or already up to date.
 
 ### 3. Switch to local main
 
@@ -99,7 +100,42 @@ git commit --no-edit
 
 Do not stage unrelated user changes.
 
-### 6. Verification
+### 6. Post-sync update review
+
+After a successful merge, inspect what changed between `LOCAL_BEFORE` and the merged `HEAD` before reporting:
+
+```bash
+git diff --stat "$LOCAL_BEFORE"..HEAD
+git diff --name-status "$LOCAL_BEFORE"..HEAD
+git log --oneline --no-merges "$LOCAL_BEFORE"..HEAD
+```
+
+Summarize main updates by product area, not by raw file list:
+
+- Backend: Go modules and changes under `controller/`, `service/`, `model/`, `relay/`, `middleware/`, `setting/`, `common/`, `dto/`, `constant/`, `i18n/`, `oauth/`, `pkg/`, `router/`.
+- Frontend default UI: changes under `web/default/`, especially `src/`, `package.json`, `bun.lock`, `rsbuild.config.*`, Tailwind/CSS, i18n locale files.
+- Frontend classic UI: changes under `web/classic/`.
+- Deployment/config/docs: Docker, compose, scripts, config examples, CI, docs, migrations.
+
+When building the update summary, inspect representative diffs for important files instead of inferring only from filenames:
+
+```bash
+git diff "$LOCAL_BEFORE"..HEAD -- <important-paths>
+```
+
+Call out likely user-visible behavior, provider/channel changes, billing/quota changes, auth/security changes, DB/schema changes, config/env changes, dependency upgrades, and UI/i18n changes. Keep the summary concise, but include enough detail for the user to know what changed.
+
+Derive testing focus from the changed areas. Prefer concrete checks such as:
+
+- Backend relay/provider paths changed: test affected provider chat/completions, streaming, tool calls, images/files if touched, and error mapping.
+- Billing/quota/model pricing changed: test pre-consume, settlement, log display, zero/false optional request values, and group/model ratio cases.
+- DB/model/migration changed: test SQLite, MySQL, and PostgreSQL migration/startup paths where feasible.
+- Auth/middleware/rate-limit changed: test login/token/OAuth/passkey or limit behavior as applicable.
+- Frontend UI changed: build `web/default`, open affected pages, test create/edit/delete flows, loading/error states, and responsive layout.
+- i18n changed: run or inspect i18n sync and test language switching for touched screens.
+- Config/deployment changed: test fresh config defaults and upgraded existing config.
+
+### 7. Verification
 
 Run focused checks based on the files changed by the merge:
 
@@ -109,7 +145,7 @@ Run focused checks based on the files changed by the merge:
 
 If a check is too expensive or cannot run because dependencies or services are missing, say that plainly and include the next best manual check.
 
-### 7. Report
+### 8. Report
 
 Reply in Chinese with:
 
@@ -117,5 +153,9 @@ Reply in Chinese with:
 - whether the merge was fast-forward, merge commit, clean merge, conflict-resolved merge, or blocked by ambiguous conflicts;
 - conflicts automatically resolved, if any;
 - ambiguous conflicts and options, if any;
+- backend main updates, if any;
+- frontend main updates, if any;
+- other config/deploy/doc updates, if any;
+- recommended test focus based on the changed areas;
 - verification commands and results;
 - current `git status --short`.
