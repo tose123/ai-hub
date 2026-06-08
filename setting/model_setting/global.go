@@ -2,6 +2,7 @@ package model_setting
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/setting/config"
@@ -76,4 +77,57 @@ func ShouldPreserveThinkingSuffix(modelName string) bool {
 		}
 	}
 	return false
+}
+
+var matchingEffortSuffixes = []string{"-max", "-xhigh", "-high", "-medium", "-low", "-minimal", "-none"}
+
+const compactModelSuffixForMatching = "-openai-compact"
+
+func BaseModelForMatching(modelName string) string {
+	target := strings.TrimSpace(modelName)
+	if target == "" {
+		return target
+	}
+
+	compactSuffix := ""
+	if strings.HasSuffix(target, compactModelSuffixForMatching) {
+		target = strings.TrimSuffix(target, compactModelSuffixForMatching)
+		compactSuffix = compactModelSuffixForMatching
+	}
+
+	if !ShouldPreserveThinkingSuffix(target) {
+		if base, ok := trimThinkingSuffixForMatching(target); ok {
+			return base + compactSuffix
+		}
+	}
+
+	for _, suffix := range matchingEffortSuffixes {
+		if strings.HasSuffix(target, suffix) && len(target) > len(suffix) {
+			return strings.TrimSuffix(target, suffix) + compactSuffix
+		}
+	}
+
+	return target + compactSuffix
+}
+
+func trimThinkingSuffixForMatching(modelName string) (string, bool) {
+	for _, suffix := range []string{"-nothinking", "-thinking"} {
+		if strings.HasSuffix(modelName, suffix) && len(modelName) > len(suffix) {
+			return strings.TrimSuffix(modelName, suffix), true
+		}
+	}
+
+	thinkingBudgetSep := "-thinking-"
+	idx := strings.LastIndex(modelName, thinkingBudgetSep)
+	if idx <= 0 {
+		return "", false
+	}
+	budget := modelName[idx+len(thinkingBudgetSep):]
+	if budget == "" {
+		return "", false
+	}
+	if _, err := strconv.Atoi(budget); err != nil {
+		return "", false
+	}
+	return modelName[:idx], true
 }

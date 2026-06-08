@@ -1,0 +1,25 @@
+package model_setting
+
+import "testing"
+
+func TestBaseModelForMatching(t *testing.T) {
+	tests := []struct {
+		name  string
+		model string
+		want  string
+	}{
+		{name: "xhigh effort", model: "claude-opus-4-7-xhigh", want: "claude-opus-4-7"},
+		{name: "none effort", model: "gpt-5-none", want: "gpt-5"},
+		{name: "compact effort", model: "gpt-5-xhigh-openai-compact", want: "gpt-5-openai-compact"},
+		{name: "thinking budget", model: "gemini-2.5-flash-thinking-1024", want: "gemini-2.5-flash"},
+		{name: "preserved thinking model", model: "kimi-k2-thinking", want: "kimi-k2-thinking"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := BaseModelForMatching(tt.model); got != tt.want {
+				t.Fatalf("BaseModelForMatching(%q) = %q, want %q", tt.model, got, tt.want)
+			}
+		})
+	}
+}

@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
@@ -38,6 +39,7 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
+		baseModel := model_setting.BaseModelForMatching(modelRequest.Model)
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
@@ -69,7 +71,7 @@ func Distribute() func(c *gin.Context) {
 				if !ok {
 					tokenModelLimit = map[string]bool{}
 				}
-				matchName := ratio_setting.FormatMatchingModelName(modelRequest.Model) // match gpts & thinking-*
+				matchName := ratio_setting.FormatMatchingModelName(baseModel) // match gpts & thinking-*
 				if _, ok := tokenModelLimit[matchName]; !ok {
 					abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorTokenModelForbidden, map[string]any{"Model": modelRequest.Model}))
 					return
@@ -101,7 +103,7 @@ func Distribute() func(c *gin.Context) {
 					}
 				}
 
-				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
+				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, baseModel, usingGroup); found {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled {
@@ -109,7 +111,7 @@ func Distribute() func(c *gin.Context) {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetTokenAwareAutoGroups(c, userGroup)
 							for _, g := range autoGroups {
-								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) {
+								if model.IsChannelEnabledForGroupModel(g, baseModel, preferred.Id) {
 									selectGroup = g
 									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
 									channel = preferred
@@ -118,7 +120,7 @@ func Distribute() func(c *gin.Context) {
 									break
 								}
 							}
-						} else if model.IsChannelEnabledForGroupModel(usingGroup, modelRequest.Model, preferred.Id) {
+						} else if model.IsChannelEnabledForGroupModel(usingGroup, baseModel, preferred.Id) {
 							channel = preferred
 							selectGroup = usingGroup
 							affinityUsable = true
@@ -133,7 +135,7 @@ func Distribute() func(c *gin.Context) {
 				if channel == nil {
 					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
 						Ctx:        c,
-						ModelName:  modelRequest.Model,
+						ModelName:  baseModel,
 						TokenGroup: usingGroup,
 						Retry:      common.GetPointer(0),
 					})

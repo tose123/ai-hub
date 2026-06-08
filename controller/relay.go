@@ -22,6 +22,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 
@@ -188,7 +189,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	retryParam := &service.RetryParam{
 		Ctx:        c,
 		TokenGroup: relayInfo.TokenGroup,
-		ModelName:  relayInfo.OriginModelName,
+		ModelName:  model_setting.BaseModelForMatching(relayInfo.OriginModelName),
 		Retry:      common.GetPointer(0),
 	}
 	relayInfo.RetryIndex = 0
@@ -564,7 +565,7 @@ func RelayTask(c *gin.Context) {
 	retryParam := &service.RetryParam{
 		Ctx:        c,
 		TokenGroup: relayInfo.TokenGroup,
-		ModelName:  relayInfo.OriginModelName,
+		ModelName:  model_setting.BaseModelForMatching(relayInfo.OriginModelName),
 		Retry:      common.GetPointer(0),
 	}
 
