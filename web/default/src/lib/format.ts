@@ -159,9 +159,11 @@ export function formatTimeStr(date: Date): string {
  * Uses 6 decimal places to show very small costs accurately
  */
 export function formatLogQuota(quota: number): string {
+  if (quota == null || Number.isNaN(quota)) return '-'
+  const cny = (quota * 7) / 500000
   return formatQuotaWithCurrency(quota, {
-    digitsLarge: 4,
-    digitsSmall: 6,
+    digitsLarge: cny >= 10 ? 2 : 3,
+    digitsSmall: cny < 0.001 ? 5 : cny < 0.01 ? 4 : 3,
     abbreviate: false,
   })
 }
