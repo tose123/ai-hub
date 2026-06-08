@@ -181,6 +181,20 @@ func composeTieredTextQuota(relayInfo *relaycommon.RelayInfo, summary textQuotaS
 	return tieredQuota + int(summary.ToolCallSurchargeQuota.Round(0).IntPart())
 }
 
+func rerankPriceBillingUnits(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) int {
+	if ctx == nil || relayInfo == nil {
+		return 0
+	}
+	if relayInfo.GetFinalRequestRelayFormat() != types.RelayFormatRerank || !relayInfo.PriceData.UsePrice {
+		return 0
+	}
+	searchUnits := common.GetContextKeyInt(ctx, constant.ContextKeyRerankSearchUnits)
+	if searchUnits <= 0 {
+		return 1
+	}
+	return searchUnits
+}
+
 func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage) textQuotaSummary {
 	summary := textQuotaSummary{
 		ModelName:            relayInfo.OriginModelName,
@@ -256,6 +270,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.ToolCallSurchargeQuota = calculateTextToolCallSurcharge(ctx, relayInfo, &summary)
 
 	var audioInputQuota decimal.Decimal
+	rerankBillingUnits := rerankPriceBillingUnits(ctx, relayInfo)
 	if !relayInfo.PriceData.UsePrice {
 		baseTokens := dPromptTokens
 
@@ -326,6 +341,9 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		summary.Quota = int(quotaCalculateDecimal.Round(0).IntPart())
 	} else {
 		quotaCalculateDecimal := dModelPrice.Mul(dQuotaPerUnit).Mul(dGroupRatio)
+		if rerankBillingUnits > 0 {
+			quotaCalculateDecimal = quotaCalculateDecimal.Mul(decimal.NewFromInt(int64(rerankBillingUnits)))
+		}
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(summary.ToolCallSurchargeQuota)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(audioInputQuota)
 		if len(relayInfo.PriceData.OtherRatios) > 0 {
@@ -333,10 +351,14 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 				quotaCalculateDecimal = quotaCalculateDecimal.Mul(decimal.NewFromFloat(otherRatio))
 			}
 		}
-		summary.Quota = int(quotaCalculateDecimal.Round(0).IntPart())
+		if rerankBillingUnits > 0 {
+			summary.Quota = int(quotaCalculateDecimal.IntPart())
+		} else {
+			summary.Quota = int(quotaCalculateDecimal.Round(0).IntPart())
+		}
 	}
 
-	if summary.TotalTokens == 0 {
+	if summary.TotalTokens == 0 && rerankBillingUnits == 0 {
 		summary.Quota = 0
 	} else if !ratio.IsZero() && summary.Quota == 0 {
 		summary.Quota = 1
@@ -399,7 +421,8 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, fmt.Sprintf("Image Generation Call 花费 ¥%s", decimal.NewFromFloat(summary.ImageGenerationCallPrice).Mul(decimal.NewFromFloat(summary.GroupRatio)).Mul(decimal.NewFromFloat(operation_setting.USDExchangeRate)).String()))
 	}
 
-	if summary.TotalTokens == 0 {
+	rerankBillingUnits := rerankPriceBillingUnits(ctx, relayInfo)
+	if summary.TotalTokens == 0 && rerankBillingUnits == 0 {
 		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
 	} else {
@@ -491,6 +514,14 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		// reliable total input value and tagged the usage source. Do not infer it from
 		// prompt/cache fields here, otherwise old upstream payloads may be double-counted.
 		other["input_tokens_total"] = usage.InputTokens
+	}
+	if relayInfo.GetFinalRequestRelayFormat() == types.RelayFormatRerank {
+		if searchUnits := common.GetContextKeyInt(ctx, constant.ContextKeyRerankSearchUnits); searchUnits > 0 {
+			other["search_units"] = searchUnits
+		}
+		if usage != nil && usage.Cost != nil {
+			other["upstream_cost"] = usage.Cost
+		}
 	}
 	if tieredBillingApplied {
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)

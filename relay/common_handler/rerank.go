@@ -23,6 +23,8 @@ func RerankHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 	service.CloseResponseBodyGracefully(resp)
 	logger.LogDebug(c, "reranker response body: %s", responseBody)
+	captureRerankSearchUnits(c, responseBody)
+
 	var jinaResp dto.RerankResponse
 	if info.ChannelType == constant.ChannelTypeXinference {
 		var xinRerankResponse xinference.XinRerankResponse
@@ -65,10 +67,53 @@ func RerankHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		if err != nil {
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 		}
-		jinaResp.Usage.PromptTokens = jinaResp.Usage.TotalTokens
 	}
+	normalizeRerankUsage(info, &jinaResp.Usage)
 
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.JSON(http.StatusOK, jinaResp)
 	return &jinaResp.Usage, nil
+}
+
+func captureRerankSearchUnits(c *gin.Context, responseBody []byte) {
+	var probe struct {
+		Usage struct {
+			SearchUnits int `json:"search_units"`
+		} `json:"usage"`
+	}
+	if err := common.Unmarshal(responseBody, &probe); err != nil {
+		return
+	}
+	if probe.Usage.SearchUnits > 0 {
+		common.SetContextKey(c, constant.ContextKeyRerankSearchUnits, probe.Usage.SearchUnits)
+	}
+}
+
+func normalizeRerankUsage(info *relaycommon.RelayInfo, usage *dto.Usage) {
+	if usage == nil {
+		return
+	}
+	if usage.PromptTokens > 0 || usage.CompletionTokens > 0 {
+		if usage.TotalTokens == 0 {
+			usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+		}
+		return
+	}
+	if usage.TotalTokens > 0 {
+		usage.PromptTokens = usage.TotalTokens
+		return
+	}
+
+	promptTokens := 0
+	if info != nil {
+		promptTokens = info.GetEstimatePromptTokens()
+		if promptTokens <= 0 && info.PriceData.UsePrice && info.PriceData.ModelPrice > 0 {
+			promptTokens = 1
+		}
+	}
+	if promptTokens <= 0 {
+		return
+	}
+	usage.PromptTokens = promptTokens
+	usage.TotalTokens = promptTokens
 }

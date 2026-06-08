@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -292,6 +293,57 @@ func TestCalculateTextQuotaSummaryHandlesLegacyClaudeDerivedOpenAIUsage(t *testi
 
 	// 62 + 3544*0.1 + 586*1.25 + 95*5 = 1624.9 => 1624
 	require.Equal(t, 1624, summary.Quota)
+}
+
+func TestCalculateTextQuotaSummaryRerankPriceUsesSearchUnits(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	common.SetContextKey(ctx, constant.ContextKeyRerankSearchUnits, 2)
+
+	modelPrice := 0.002857
+	relayInfo := &relaycommon.RelayInfo{
+		RelayFormat:     types.RelayFormatRerank,
+		OriginModelName: "cohere/rerank-4-pro",
+		PriceData: types.PriceData{
+			UsePrice:       true,
+			ModelPrice:     modelPrice,
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
+		},
+		StartTime: time.Now(),
+	}
+
+	summary := calculateTextQuotaSummary(ctx, relayInfo, &dto.Usage{
+		PromptTokens: 123,
+		TotalTokens:  123,
+		Cost:         0.005,
+	})
+
+	require.Equal(t, int(modelPrice*common.QuotaPerUnit*2), summary.Quota)
+	require.Equal(t, 123, summary.PromptTokens)
+}
+
+func TestCalculateTextQuotaSummaryRerankPriceDefaultsToOneSearchUnit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+
+	modelPrice := 0.002857
+	relayInfo := &relaycommon.RelayInfo{
+		RelayFormat:     types.RelayFormatRerank,
+		OriginModelName: "cohere/rerank-4-pro",
+		PriceData: types.PriceData{
+			UsePrice:       true,
+			ModelPrice:     modelPrice,
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
+		},
+		StartTime: time.Now(),
+	}
+
+	summary := calculateTextQuotaSummary(ctx, relayInfo, &dto.Usage{})
+
+	require.Equal(t, int(modelPrice*common.QuotaPerUnit), summary.Quota)
+	require.Equal(t, 0, summary.TotalTokens)
 }
 
 func TestCalculateTextQuotaSummarySeparatesOpenRouterCacheReadFromPromptBilling(t *testing.T) {
