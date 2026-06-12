@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { z } from 'zod'
 import type { TFunction } from 'i18next'
 import { parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
+import { validateModelMappingJson } from '@/features/channels/lib/model-mapping-validation'
 import { DEFAULT_GROUP } from '../constants'
 import type { ApiKey, ApiKeyFormData } from '../types'
 
@@ -34,6 +35,7 @@ export function getApiKeyFormSchema(t: TFunction) {
       expired_time: z.date().optional(),
       unlimited_quota: z.boolean(),
       model_limits: z.array(z.string()),
+      model_mapping: z.string().optional(),
       allow_ips: z.string().optional(),
       group: z.string().optional(),
       auto_groups_override: z.array(z.string()).optional(),
@@ -45,14 +47,29 @@ export function getApiKeyFormSchema(t: TFunction) {
         return
       }
 
-      if (
-        data.remain_quota_dollars === undefined ||
-        data.remain_quota_dollars < 0
-      ) {
+      if (!data.unlimited_quota) {
+        if (
+          data.remain_quota_dollars === undefined ||
+          data.remain_quota_dollars < 0
+        ) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['remain_quota_dollars'],
+            message: t('Quota must be zero or greater'),
+          })
+        }
+      }
+
+      const modelMappingValidation = validateModelMappingJson(
+        data.model_mapping || ''
+      )
+      if (!modelMappingValidation.valid) {
         ctx.addIssue({
           code: 'custom',
-          path: ['remain_quota_dollars'],
-          message: t('Quota must be zero or greater'),
+          path: ['model_mapping'],
+          message: t(
+            modelMappingValidation.error || 'Invalid model mapping format'
+          ),
         })
       }
     })
@@ -70,6 +87,7 @@ export const API_KEY_FORM_DEFAULT_VALUES: ApiKeyFormValues = {
   expired_time: undefined,
   unlimited_quota: true,
   model_limits: [],
+  model_mapping: '',
   allow_ips: '',
   group: DEFAULT_GROUP,
   auto_groups_override: [],
@@ -110,6 +128,7 @@ export function transformFormDataToPayload(
     unlimited_quota: data.unlimited_quota,
     model_limits_enabled: data.model_limits.length > 0,
     model_limits: data.model_limits.join(','),
+    model_mapping: data.model_mapping?.trim() || '',
     allow_ips: data.allow_ips || '',
     group: data.group || '',
     auto_groups_override:
@@ -140,6 +159,7 @@ export function transformApiKeyToFormDefaults(
     model_limits: apiKey.model_limits
       ? apiKey.model_limits.split(',').filter(Boolean)
       : [],
+    model_mapping: apiKey.model_mapping || '',
     allow_ips: apiKey.allow_ips || '',
     group: apiKey.group || DEFAULT_GROUP,
     auto_groups_override: apiKey.auto_groups_override || defaultAutoGroupsOverride,

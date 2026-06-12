@@ -503,9 +503,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
       titleClassName='flex items-center gap-2 text-base'
       descriptionClassName='sr-only'
       contentHeight='min(72vh, 720px)'
-      bodyClassName='space-y-4'
+      bodyClassName='flex h-full min-h-0 flex-col'
     >
-      <ScrollArea className='max-h-[70vh] min-w-0 overflow-hidden pr-2 max-sm:max-h-[calc(100dvh-7rem)] sm:pr-4'>
+      <ScrollArea className='min-h-0 flex-1 min-w-0 overflow-hidden pr-2 sm:pr-4'>
         <div className='w-full max-w-full min-w-0 space-y-2.5 overflow-hidden py-1 sm:space-y-3'>
           {/* Overview section - key identifiers */}
           <div className='min-w-0 space-y-1'>

@@ -8,6 +8,8 @@ const (
 	ContextKeyEstimatedTokens ContextKey = "estimated_tokens"
 
 	ContextKeyOriginalModel    ContextKey = "original_model"
+	ContextKeyRequestModel     ContextKey = "request_model"
+	ContextKeyUpstreamModel    ContextKey = "upstream_model"
 	ContextKeyRequestStartTime ContextKey = "request_start_time"
 
 	/* token related keys */
@@ -18,6 +20,7 @@ const (
 	ContextKeyTokenSpecificChannelId  ContextKey = "specific_channel_id"
 	ContextKeyTokenModelLimitEnabled  ContextKey = "token_model_limit_enabled"
 	ContextKeyTokenModelLimit         ContextKey = "token_model_limit"
+	ContextKeyTokenModelMapping       ContextKey = "token_model_mapping"
 	ContextKeyTokenCrossGroupRetry    ContextKey = "token_cross_group_retry"
 	ContextKeyTokenAutoGroupsOverride ContextKey = "token_auto_groups_override"
 

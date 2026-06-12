@@ -351,7 +351,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		logger.LogError(ctx, "error settling billing: "+err.Error())
 	}
 
-	logModel := relayInfo.OriginModelName
+	logModel, _, _ := resolveRelayLogModelNames(ctx, relayInfo)
 	if extraContent != "" {
 		logContent += ", " + extraContent
 	}

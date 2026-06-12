@@ -176,7 +176,7 @@ export function validateModelMappingJson(modelMapping: string): {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return {
         valid: false,
-        error: 'Model mapping must be a valid JSON object',
+        error: 'Invalid model mapping format',
       }
     }
     if (Object.values(parsed).some((value) => typeof value !== 'string')) {
@@ -189,7 +189,7 @@ export function validateModelMappingJson(modelMapping: string): {
   } catch {
     return {
       valid: false,
-      error: 'Model mapping must be valid JSON format',
+      error: 'Invalid model mapping format',
     }
   }
 }

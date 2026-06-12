@@ -84,7 +84,7 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
       }
       const parsed = JSON.parse(json)
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        setJsonError(t('Model mapping must be a valid JSON object'))
+        setJsonError(t('Invalid model mapping format'))
         return false
       }
       const entries = Object.entries(parsed)
@@ -96,11 +96,11 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
       setRows((previousRows) => {
         const remainingRows = [...previousRows]
         return entries.map(([from, to], index) => {
-          const toString = String(to)
+          const toStr = String(to)
           const existingIndex = remainingRows.findIndex(
             (row) =>
               row.from === from ||
-              (row.from === from && row.to === toString) ||
+              (row.from === from && row.to === toStr) ||
               previousRows[index]?.id === row.id
           )
           if (existingIndex >= 0) {
@@ -108,20 +108,20 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
             return {
               id: existing.id,
               from,
-              to: toString,
+              to: toStr,
             }
           }
           return {
             id: createRowId(),
             from,
-            to: toString,
+            to: toStr,
           }
         })
       })
       setJsonError(null)
       return true
     } catch (_error) {
-      setJsonError(t('Model mapping must be valid JSON format'))
+      setJsonError(t('Invalid model mapping format'))
       return false
     }
   }
@@ -194,7 +194,11 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
 
   const handleFillTemplate = () => {
     const template = JSON.stringify(
-      { 'gpt-3.5-turbo': 'gpt-3.5-turbo-0125' },
+      {
+        'claude-opus-4-6': 'gpt-5.5-xhigh',
+        'claude-sonnet-4-6': 'gpt-5.4',
+        'claude-haiku-4-5': 'gpt-5.4-mini',
+      },
       null,
       2
     )

@@ -22,6 +22,7 @@ type tokenUpsertRequest struct {
 	UnlimitedQuota     bool      `json:"unlimited_quota"`
 	ModelLimitsEnabled bool      `json:"model_limits_enabled"`
 	ModelLimits        string    `json:"model_limits"`
+	ModelMapping       string    `json:"model_mapping"`
 	AllowIps           *string   `json:"allow_ips"`
 	Group              string    `json:"group"`
 	CrossGroupRetry    bool      `json:"cross_group_retry"`
@@ -264,6 +265,7 @@ func AddToken(c *gin.Context) {
 		UnlimitedQuota:     req.UnlimitedQuota,
 		ModelLimitsEnabled: req.ModelLimitsEnabled,
 		ModelLimits:        req.ModelLimits,
+		ModelMapping:       req.ModelMapping,
 		AllowIps:           req.AllowIps,
 		Group:              req.Group,
 		CrossGroupRetry:    req.CrossGroupRetry,
@@ -351,6 +353,7 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.UnlimitedQuota = req.UnlimitedQuota
 		cleanToken.ModelLimitsEnabled = req.ModelLimitsEnabled
 		cleanToken.ModelLimits = req.ModelLimits
+		cleanToken.ModelMapping = req.ModelMapping
 		cleanToken.AllowIps = req.AllowIps
 		cleanToken.Group = req.Group
 		cleanToken.CrossGroupRetry = req.CrossGroupRetry

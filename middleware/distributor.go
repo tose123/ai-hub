@@ -39,7 +39,12 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
-		baseModel := model_setting.BaseModelForMatching(modelRequest.Model)
+		common.SetContextKey(c, constant.ContextKeyRequestModel, modelRequest.Model)
+		routedModel, baseModel, err := resolveTokenRoutedModel(c, modelRequest.Model)
+		if err != nil {
+			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, "Invalid model mapping format"))
+			return
+		}
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
@@ -57,7 +62,6 @@ func Distribute() func(c *gin.Context) {
 			}
 		} else {
 			// Select a channel for the user
-			// check token model mapping
 			modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
 			if modelLimitEnable {
 				s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
@@ -79,7 +83,7 @@ func Distribute() func(c *gin.Context) {
 			}
 
 			if shouldSelectChannel {
-				if modelRequest.Model == "" {
+				if routedModel == "" {
 					abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorModelNameRequired))
 					return
 				}
@@ -161,12 +165,62 @@ func Distribute() func(c *gin.Context) {
 			}
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
-		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
+		SetupContextForSelectedChannel(c, channel, routedModel)
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
 			service.RecordChannelAffinity(c, channel.Id)
 		}
 	}
+}
+
+func resolveTokenRoutedModel(c *gin.Context, requestModel string) (string, string, error) {
+	routedModel, err := applyTokenModelMapping(c, requestModel)
+	if err != nil {
+		return "", "", err
+	}
+	return routedModel, model_setting.BaseModelForMatching(routedModel), nil
+}
+
+func applyTokenModelMapping(c *gin.Context, requestModel string) (string, error) {
+	modelMapping := common.GetContextKeyString(c, constant.ContextKeyTokenModelMapping)
+	if requestModel == "" || modelMapping == "" || modelMapping == "{}" {
+		return requestModel, nil
+	}
+
+	mappingModelName := requestModel
+	isResponsesCompact := strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact")
+	if isResponsesCompact && strings.HasSuffix(requestModel, ratio_setting.CompactModelSuffix) {
+		mappingModelName = strings.TrimSuffix(requestModel, ratio_setting.CompactModelSuffix)
+	}
+
+	modelMap := make(map[string]string)
+	if err := common.UnmarshalJsonStr(modelMapping, &modelMap); err != nil {
+		return "", err
+	}
+
+	currentModel := mappingModelName
+	visitedModels := map[string]bool{
+		currentModel: true,
+	}
+	for {
+		mappedModel, exists := modelMap[currentModel]
+		if !exists || mappedModel == "" {
+			break
+		}
+		if visitedModels[mappedModel] {
+			if mappedModel == currentModel {
+				break
+			}
+			return "", fmt.Errorf("token_model_mapping_contains_cycle")
+		}
+		visitedModels[mappedModel] = true
+		currentModel = mappedModel
+	}
+
+	if isResponsesCompact {
+		return ratio_setting.WithCompactModelSuffix(currentModel), nil
+	}
+	return currentModel, nil
 }
 
 // getModelFromRequest 从请求中读取模型信息
@@ -431,6 +485,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	if channel == nil {
 		return types.NewError(errors.New("channel is nil"), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
+	common.SetContextKey(c, constant.ContextKeyUpstreamModel, modelName)
 	common.SetContextKey(c, constant.ContextKeyChannelId, channel.Id)
 	common.SetContextKey(c, constant.ContextKeyChannelName, channel.Name)
 	common.SetContextKey(c, constant.ContextKeyChannelType, channel.Type)

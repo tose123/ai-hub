@@ -254,6 +254,9 @@ func migrateDB() error {
 	if err := migrateTokenModelLimitsToText(); err != nil {
 		return err
 	}
+	if err := ensureTokenModelMappingColumn(); err != nil {
+		return err
+	}
 	if err := ensureTokenAutoGroupsOverrideColumn(); err != nil {
 		return err
 	}
@@ -289,6 +292,9 @@ func migrateDB() error {
 		return err
 	}
 	if common.UsingSQLite {
+		if err := ensureTokenModelMappingColumn(); err != nil {
+			return err
+		}
 		if err := ensureTokenAutoGroupsOverrideColumn(); err != nil {
 			return err
 		}
@@ -301,6 +307,25 @@ func migrateDB() error {
 		}
 	}
 	return nil
+}
+
+func ensureTokenModelMappingColumn() error {
+	tableName := "tokens"
+	columnName := "model_mapping"
+
+	if !DB.Migrator().HasTable(tableName) {
+		return nil
+	}
+
+	if DB.Migrator().HasColumn(&Token{}, columnName) {
+		return nil
+	}
+
+	if common.UsingSQLite {
+		return DB.Exec("ALTER TABLE `" + tableName + "` ADD COLUMN `" + columnName + "` text").Error
+	}
+
+	return DB.Migrator().AddColumn(&Token{}, columnName)
 }
 
 func ensureTokenAutoGroupsOverrideColumn() error {

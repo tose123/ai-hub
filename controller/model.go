@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -169,6 +171,134 @@ func buildOpenAIModel(modelName string, ownerByModel map[string]string) dto.Open
 	return oaiModel
 }
 
+func abortWithModelMappingError(c *gin.Context) {
+	c.JSON(http.StatusBadRequest, gin.H{
+		"error": types.OpenAIError{
+			Message: "Invalid model mapping format",
+			Type:    "invalid_request_error",
+			Param:   "model",
+			Code:    "invalid_model_mapping",
+		},
+	})
+	c.Abort()
+}
+
+func resolveModelMappingChain(modelMap map[string]string, modelName string) (string, bool) {
+	currentModel := strings.TrimSpace(modelName)
+	if currentModel == "" {
+		return "", false
+	}
+
+	visitedModels := map[string]bool{
+		currentModel: true,
+	}
+	for {
+		mappedModel, exists := modelMap[currentModel]
+		if !exists || strings.TrimSpace(mappedModel) == "" {
+			return currentModel, true
+		}
+		mappedModel = strings.TrimSpace(mappedModel)
+		if visitedModels[mappedModel] {
+			if mappedModel == currentModel {
+				return currentModel, true
+			}
+			return "", false
+		}
+		visitedModels[mappedModel] = true
+		currentModel = mappedModel
+	}
+}
+
+func getTokenMappedModelAliases(c *gin.Context, visibleModels []string) (map[string]string, []string, error) {
+	modelMapping := common.GetContextKeyString(c, constant.ContextKeyTokenModelMapping)
+	if modelMapping == "" || modelMapping == "{}" {
+		return map[string]string{}, nil, nil
+	}
+
+	modelMap := make(map[string]string)
+	if err := common.UnmarshalJsonStr(modelMapping, &modelMap); err != nil {
+		return nil, nil, err
+	}
+
+	visibleSet := make(map[string]struct{}, len(visibleModels))
+	for _, modelName := range visibleModels {
+		trimmed := strings.TrimSpace(modelName)
+		if trimmed == "" {
+			continue
+		}
+		visibleSet[trimmed] = struct{}{}
+	}
+
+	aliasTargets := make(map[string]string)
+	aliases := make([]string, 0)
+	for alias := range modelMap {
+		alias = strings.TrimSpace(alias)
+		if alias == "" {
+			continue
+		}
+		resolvedTarget, ok := resolveModelMappingChain(modelMap, alias)
+		if !ok {
+			return nil, nil, fmt.Errorf("token_model_mapping_contains_cycle")
+		}
+		resolvedTarget = model_setting.BaseModelForMatching(resolvedTarget)
+		if _, exists := visibleSet[resolvedTarget]; !exists {
+			continue
+		}
+		aliasTargets[alias] = resolvedTarget
+		aliases = append(aliases, alias)
+	}
+
+	sort.Strings(aliases)
+	return aliasTargets, aliases, nil
+}
+
+func mergeModelNamesWithAliases(baseModels []string, aliases []string) []string {
+	merged := make([]string, 0, len(baseModels)+len(aliases))
+	seen := make(map[string]struct{}, len(baseModels)+len(aliases))
+
+	for _, modelName := range baseModels {
+		trimmed := strings.TrimSpace(modelName)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		merged = append(merged, trimmed)
+	}
+
+	for _, alias := range aliases {
+		trimmed := strings.TrimSpace(alias)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		merged = append(merged, trimmed)
+	}
+
+	return merged
+}
+
+func buildOwnerByAlias(ownerByModel map[string]string, aliasTargets map[string]string) map[string]string {
+	if len(aliasTargets) == 0 {
+		return ownerByModel
+	}
+	merged := make(map[string]string, len(ownerByModel)+len(aliasTargets))
+	for modelName, owner := range ownerByModel {
+		merged[modelName] = owner
+	}
+	for alias, target := range aliasTargets {
+		if owner, ok := ownerByModel[target]; ok && owner != "" {
+			merged[alias] = owner
+		}
+	}
+	return merged
+}
+
 type modelListGroups struct {
 	userGroup   string
 	tokenGroup  string
@@ -209,6 +339,58 @@ func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 	}, nil
 }
 
+func getVisibleModelNamesForList(
+	c *gin.Context,
+	acceptUnsetRatioModel bool,
+) ([]string, modelListGroups, error) {
+	userModelNames := make([]string, 0)
+	groups, err := getModelListGroups(c)
+	if err != nil {
+		return nil, modelListGroups{}, err
+	}
+
+	ownerGroups := groups.ownerGroups
+	modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
+	if modelLimitEnable {
+		s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
+		var tokenModelLimit map[string]bool
+		if ok {
+			tokenModelLimit = s.(map[string]bool)
+		} else {
+			tokenModelLimit = map[string]bool{}
+		}
+		for allowModel := range tokenModelLimit {
+			if !acceptUnsetRatioModel && !helper.HasModelBillingConfig(allowModel) {
+				continue
+			}
+			userModelNames = append(userModelNames, allowModel)
+		}
+		return userModelNames, groups, nil
+	}
+
+	var models []string
+	if groups.tokenGroup == "auto" {
+		for _, autoGroup := range ownerGroups {
+			groupModels := model.GetGroupEnabledModels(autoGroup)
+			for _, g := range groupModels {
+				if !common.StringsContains(models, g) {
+					models = append(models, g)
+				}
+			}
+		}
+	} else if len(ownerGroups) > 0 {
+		models = model.GetGroupEnabledModels(ownerGroups[0])
+	}
+
+	for _, modelName := range models {
+		if !acceptUnsetRatioModel && !helper.HasModelBillingConfig(modelName) {
+			continue
+		}
+		userModelNames = append(userModelNames, modelName)
+	}
+	return userModelNames, groups, nil
+}
+
 func ListModels(c *gin.Context, modelType int) {
 	acceptUnsetRatioModel := operation_setting.SelfUseModeEnabled
 	if !acceptUnsetRatioModel {
@@ -221,8 +403,7 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	}
 
-	userModelNames := make([]string, 0)
-	groups, err := getModelListGroups(c)
+	userModelNames, groups, err := getVisibleModelNamesForList(c, acceptUnsetRatioModel)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -231,54 +412,28 @@ func ListModels(c *gin.Context, modelType int) {
 		return
 	}
 	ownerGroups := groups.ownerGroups
-	modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
-	if modelLimitEnable {
-		s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
-		var tokenModelLimit map[string]bool
-		if ok {
-			tokenModelLimit = s.(map[string]bool)
-		} else {
-			tokenModelLimit = map[string]bool{}
-		}
-		for allowModel, _ := range tokenModelLimit {
-			if !acceptUnsetRatioModel {
-				if !helper.HasModelBillingConfig(allowModel) {
-					continue
-				}
-			}
-			userModelNames = append(userModelNames, allowModel)
-		}
-	} else {
-		var models []string
-		if groups.tokenGroup == "auto" {
-			for _, autoGroup := range ownerGroups {
-				groupModels := model.GetGroupEnabledModels(autoGroup)
-				for _, g := range groupModels {
-					if !common.StringsContains(models, g) {
-						models = append(models, g)
-					}
-				}
-			}
-		} else {
-			models = model.GetGroupEnabledModels(ownerGroups[0])
-		}
-		for _, modelName := range models {
-			if !acceptUnsetRatioModel {
-				if !helper.HasModelBillingConfig(modelName) {
-					continue
-				}
-			}
-			userModelNames = append(userModelNames, modelName)
-		}
+
+	aliasTargets, aliases, err := getTokenMappedModelAliases(c, userModelNames)
+	if err != nil {
+		abortWithModelMappingError(c)
+		return
 	}
+	userModelNames = mergeModelNamesWithAliases(userModelNames, aliases)
 
 	ownerByModel := map[string]string{}
 	if len(ownerGroups) > 0 {
 		ownerByModel = getPreferredModelOwners(userModelNames, ownerGroups)
 	}
+	ownerByModel = buildOwnerByAlias(ownerByModel, aliasTargets)
 	userOpenAiModels := make([]dto.OpenAIModels, 0, len(userModelNames))
 	for _, modelName := range userModelNames {
-		userOpenAiModels = append(userOpenAiModels, buildOpenAIModel(modelName, ownerByModel))
+		targetModelName := modelName
+		if resolvedTarget, ok := aliasTargets[modelName]; ok {
+			targetModelName = resolvedTarget
+		}
+		oaiModel := buildOpenAIModel(targetModelName, ownerByModel)
+		oaiModel.Id = modelName
+		userOpenAiModels = append(userOpenAiModels, oaiModel)
 	}
 
 	switch modelType {
@@ -342,13 +497,40 @@ func EnabledListModels(c *gin.Context) {
 
 func RetrieveModel(c *gin.Context, modelType int) {
 	modelId := c.Param("model")
-	if aiModel, ok := openAIModelsMap[modelId]; ok {
+	visibleModels, groups, err := getVisibleModelNamesForList(c, true)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "get user group failed",
+		})
+		return
+	}
+	aliasTargets, _, err := getTokenMappedModelAliases(c, visibleModels)
+	if err != nil {
+		abortWithModelMappingError(c)
+		return
+	}
+	visibleSet := make(map[string]struct{}, len(visibleModels))
+	for _, visibleModel := range visibleModels {
+		visibleSet[visibleModel] = struct{}{}
+	}
+	targetModelId := modelId
+	if resolvedTarget, ok := aliasTargets[modelId]; ok {
+		targetModelId = resolvedTarget
+	}
+	if _, ok := visibleSet[targetModelId]; ok {
+		ownerByModel := map[string]string{}
+		if len(groups.ownerGroups) > 0 {
+			ownerByModel = getPreferredModelOwners(visibleModels, groups.ownerGroups)
+		}
+		aiModel := buildOpenAIModel(targetModelId, ownerByModel)
+		aiModel.Id = modelId
 		switch modelType {
 		case constant.ChannelTypeAnthropic:
 			c.JSON(200, dto.AnthropicModel{
-				ID:          aiModel.Id,
+				ID:          modelId,
 				CreatedAt:   time.Unix(int64(aiModel.Created), 0).UTC().Format(time.RFC3339),
-				DisplayName: aiModel.Id,
+				DisplayName: modelId,
 				Type:        "model",
 			})
 		default:

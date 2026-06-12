@@ -4,13 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -133,6 +137,59 @@ func makeTask(userId, channelId, quota, tokenId int, billingSource string, subsc
 			},
 		},
 	}
+}
+
+func TestTaskBillingOtherAddsMappedModelMetadata(t *testing.T) {
+	task := makeTask(1, 1, 100, 1, BillingSourceWallet, 0)
+	task.Properties.OriginModelName = "alias-a"
+	task.Properties.UpstreamModelName = "model-c"
+
+	other := taskBillingOther(task)
+	assert.Equal(t, true, other["is_model_mapped"])
+	assert.Equal(t, "model-c", other["upstream_model_name"])
+	assert.Equal(t, "alias-a", other["request_model_name"])
+}
+
+func TestLogTaskConsumptionUsesRequestModelWhenMapped(t *testing.T) {
+	truncate(t)
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", nil)
+	ctx.Set("username", "test_user")
+	ctx.Set("token_name", "test_token")
+	common.SetContextKey(ctx, constant.ContextKeyRequestModel, "alias-a")
+	common.SetContextKey(ctx, constant.ContextKeyUpstreamModel, "model-c")
+
+	info := &relaycommon.RelayInfo{
+		UserId:          1,
+		TokenId:         1,
+		UsingGroup:      "default",
+		OriginModelName: "model-b",
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{
+			Action: "video",
+		},
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelId:         1,
+			UpstreamModelName: "model-c",
+		},
+		PriceData: types.PriceData{
+			Quota: 123,
+			GroupRatioInfo: types.GroupRatioInfo{
+				GroupRatio: 1,
+			},
+		},
+	}
+
+	LogTaskConsumption(ctx, info)
+
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Equal(t, "alias-a", log.ModelName)
+	var other map[string]interface{}
+	require.NoError(t, common.Unmarshal([]byte(log.Other), &other))
+	assert.Equal(t, true, other["is_model_mapped"])
+	assert.Equal(t, "model-c", other["upstream_model_name"])
 }
 
 // ---------------------------------------------------------------------------

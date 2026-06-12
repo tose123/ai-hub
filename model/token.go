@@ -119,6 +119,7 @@ type Token struct {
 	UnlimitedQuota     bool             `json:"unlimited_quota"`
 	ModelLimitsEnabled bool             `json:"model_limits_enabled"`
 	ModelLimits        string           `json:"model_limits" gorm:"type:text"`
+	ModelMapping       string           `json:"model_mapping" gorm:"type:text"`
 	AllowIps           *string          `json:"allow_ips" gorm:"default:''"`
 	UsedQuota          int              `json:"used_quota" gorm:"default:0"` // used quota
 	Group              string           `json:"group" gorm:"default:''"`
@@ -415,7 +416,7 @@ func (token *Token) Update() (err error) {
 		}
 	}()
 	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups_override").Updates(token).Error
+		"model_limits_enabled", "model_limits", "model_mapping", "allow_ips", "group", "cross_group_retry", "auto_groups_override").Updates(token).Error
 	return err
 }
 

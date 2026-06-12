@@ -14,6 +14,70 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func resolveRelayLogModelNames(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) (string, string, bool) {
+	requestModel := ""
+	if ctx != nil {
+		requestModel = strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyRequestModel))
+	}
+	if requestModel == "" && relayInfo != nil {
+		requestModel = strings.TrimSpace(relayInfo.OriginModelName)
+	}
+
+	upstreamModel := ""
+	if relayInfo != nil && relayInfo.ChannelMeta != nil {
+		upstreamModel = strings.TrimSpace(relayInfo.UpstreamModelName)
+	}
+	if upstreamModel == "" && ctx != nil {
+		upstreamModel = strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyUpstreamModel))
+	}
+	if upstreamModel == "" && relayInfo != nil {
+		upstreamModel = strings.TrimSpace(relayInfo.OriginModelName)
+	}
+
+	isMapped := requestModel != "" && upstreamModel != "" && requestModel != upstreamModel
+	if requestModel == "" {
+		requestModel = upstreamModel
+	}
+	return requestModel, upstreamModel, isMapped
+}
+
+func resolveContextLogModelNames(ctx *gin.Context) (string, string, bool) {
+	requestModel := strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyRequestModel))
+	if requestModel == "" {
+		requestModel = strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyOriginalModel))
+	}
+
+	upstreamModel := strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyUpstreamModel))
+	if upstreamModel == "" {
+		upstreamModel = strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyOriginalModel))
+	}
+
+	isMapped := requestModel != "" && upstreamModel != "" && requestModel != upstreamModel
+	if requestModel == "" {
+		requestModel = upstreamModel
+	}
+	return requestModel, upstreamModel, isMapped
+}
+
+func applyMappedModelInfo(other map[string]interface{}, requestModel, upstreamModel string, isMapped bool) {
+	if other == nil || !isMapped || upstreamModel == "" {
+		return
+	}
+	other["is_model_mapped"] = true
+	other["upstream_model_name"] = upstreamModel
+	if requestModel != "" {
+		other["request_model_name"] = requestModel
+	}
+}
+
+func ResolveContextLogModelNamesForController(ctx *gin.Context) (string, string, bool) {
+	return resolveContextLogModelNames(ctx)
+}
+
+func ApplyMappedModelInfoForController(other map[string]interface{}, requestModel, upstreamModel string, isMapped bool) {
+	applyMappedModelInfo(other, requestModel, upstreamModel, isMapped)
+}
+
 func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
 	if other == nil {
 		return
@@ -50,10 +114,8 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	if relayInfo.ReasoningEffort != "" {
 		other["reasoning_effort"] = relayInfo.ReasoningEffort
 	}
-	if relayInfo.IsModelMapped {
-		other["is_model_mapped"] = true
-		other["upstream_model_name"] = relayInfo.UpstreamModelName
-	}
+	requestModel, upstreamModel, isMapped := resolveRelayLogModelNames(ctx, relayInfo)
+	applyMappedModelInfo(other, requestModel, upstreamModel, isMapped)
 
 	isSystemPromptOverwritten := common.GetContextKeyBool(ctx, constant.ContextKeySystemPromptOverride)
 	if isSystemPromptOverwritten {

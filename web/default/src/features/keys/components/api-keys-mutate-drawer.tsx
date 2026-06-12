@@ -66,6 +66,7 @@ import {
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
 import { MultiSelect } from '@/components/multi-select'
+import { ModelMappingEditor } from '@/features/channels/components/model-mapping-editor'
 import { getPricing } from '@/features/pricing/api'
 import { createApiKey, updateApiKey, getApiKey } from '../api'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
@@ -773,6 +774,25 @@ export function ApiKeysMutateDrawer({
                           <FormDescription>
                             {t('Limit which models can be used with this key')}
                           </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='model_mapping'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Model Mapping')}</FormLabel>
+                          <FormControl>
+                            <ModelMappingEditor
+                              value={field.value || ''}
+                              onChange={field.onChange}
+                              sourceModelOptions={models}
+                              targetModelOptions={models}
+                            />
+                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}

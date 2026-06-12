@@ -146,10 +146,12 @@ func ChargeViolationFeeIfNeeded(ctx *gin.Context, relayInfo *relaycommon.RelayIn
 		"upstream_error_code":  fmt.Sprintf("%v", oai.Code),
 		"violation_fee_marker": CSAMViolationMarker,
 	}
+	logModel, upstreamModel, isMapped := resolveRelayLogModelNames(ctx, relayInfo)
+	applyMappedModelInfo(other, logModel, upstreamModel, isMapped)
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:      relayInfo.ChannelId,
-		ModelName:      relayInfo.OriginModelName,
+		ModelName:      logModel,
 		TokenName:      tokenName,
 		Quota:          feeQuota,
 		Content:        "Violation fee charged",

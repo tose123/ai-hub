@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
@@ -353,4 +354,159 @@ func TestListModelsAutoTokenUsesOverrideOrderScope(t *testing.T) {
 	ids := decodeListModelsResponse(t, recorder)
 	require.NotContains(t, ids, "zz-tiered-visible-model")
 	require.Contains(t, ids, "zz-token-tiered-visible-model")
+}
+
+func TestListModelsIncludesTokenModelMappingAlias(t *testing.T) {
+	withSelfUseModeDisabled(t)
+	withTieredBillingConfig(t, map[string]string{
+		"gpt-4o-mini": "tiered_expr",
+	}, map[string]string{
+		"gpt-4o-mini": `tier("base", p * 1 + c * 2)`,
+	})
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
+		"gpt-4o-mini": true,
+	})
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelMapping, `{"my-gpt":"gpt-4o-mini"}`)
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	ids := decodeListModelsResponse(t, recorder)
+	require.Contains(t, ids, "gpt-4o-mini")
+	require.Contains(t, ids, "my-gpt")
+}
+
+func TestListModelsDeduplicatesTokenModelMappingAlias(t *testing.T) {
+	withSelfUseModeDisabled(t)
+	withTieredBillingConfig(t, map[string]string{
+		"gpt-4o-mini": "tiered_expr",
+	}, map[string]string{
+		"gpt-4o-mini": `tier("base", p * 1 + c * 2)`,
+	})
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
+		"gpt-4o-mini": true,
+		"my-gpt":      true,
+	})
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelMapping, `{"my-gpt":"gpt-4o-mini"}`)
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var payload listModelsResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+
+	count := 0
+	for _, item := range payload.Data {
+		if item.Id == "my-gpt" {
+			count++
+		}
+	}
+	require.Equal(t, 1, count)
+}
+
+func TestRetrieveModelSupportsTokenModelMappingAlias(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "model", Value: "my-gpt"}}
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models/my-gpt", nil)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
+		"gpt-4o-mini": true,
+	})
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelMapping, `{"my-gpt":"gpt-4o-mini"}`)
+
+	RetrieveModel(ctx, constant.ChannelTypeOpenAI)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var payload dto.OpenAIModels
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.Equal(t, "my-gpt", payload.Id)
+}
+
+func TestRetrieveModelReturnsNotFoundWhenAliasTargetUnavailable(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "model", Value: "my-gpt"}}
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models/my-gpt", nil)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelMapping, `{"my-gpt":"zz-unavailable-model"}`)
+
+	RetrieveModel(ctx, constant.ChannelTypeOpenAI)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var payload map[string]types.OpenAIError
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.Contains(t, payload, "error")
+	require.Equal(t, "model_not_found", payload["error"].Code)
+}
+
+func TestListModelsReturnsBadRequestWhenTokenModelMappingInvalid(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
+		"gpt-4o-mini": true,
+	})
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelMapping, `{`)
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	var payload map[string]types.OpenAIError
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.Contains(t, payload, "error")
+	require.Equal(t, "invalid_model_mapping", payload["error"].Code)
+}
+
+func TestListModelsNormalizesMappedTargetBeforeVisibilityCheck(t *testing.T) {
+	withSelfUseModeDisabled(t)
+	withTieredBillingConfig(t, map[string]string{
+		"claude-opus-4-7": "tiered_expr",
+	}, map[string]string{
+		"claude-opus-4-7": `tier("base", p * 1 + c * 2)`,
+	})
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
+		"claude-opus-4-7": true,
+	})
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelMapping, `{"my-opus":"claude-opus-4-7-xhigh"}`)
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	ids := decodeListModelsResponse(t, recorder)
+	require.Contains(t, ids, "claude-opus-4-7")
+	require.Contains(t, ids, "my-opus")
+}
+
+func TestRetrieveModelNormalizesMappedTargetBeforeVisibilityCheck(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "model", Value: "my-opus"}}
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models/my-opus", nil)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
+		"claude-opus-4-7": true,
+	})
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelMapping, `{"my-opus":"claude-opus-4-7-xhigh"}`)
+
+	RetrieveModel(ctx, constant.ChannelTypeOpenAI)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var payload dto.OpenAIModels
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.Equal(t, "my-opus", payload.Id)
+	require.Equal(t, model.GetModelSupportEndpointTypes("claude-opus-4-7"), payload.SupportedEndpointTypes)
 }

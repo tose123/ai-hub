@@ -20,6 +20,54 @@ func float64Ptr(v float64) *float64 {
 	return &v
 }
 
+func TestResolveRelayLogModelNames(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+
+	t.Run("token mapping only", func(t *testing.T) {
+		common.SetContextKey(ctx, constant.ContextKeyRequestModel, "alias-a")
+		info := &relaycommon.RelayInfo{
+			OriginModelName: "model-b",
+			ChannelMeta: &relaycommon.ChannelMeta{
+				UpstreamModelName: "model-b",
+			},
+		}
+		logModel, upstreamModel, isMapped := resolveRelayLogModelNames(ctx, info)
+		require.Equal(t, "alias-a", logModel)
+		require.Equal(t, "model-b", upstreamModel)
+		require.True(t, isMapped)
+	})
+
+	t.Run("token and channel mapping", func(t *testing.T) {
+		common.SetContextKey(ctx, constant.ContextKeyRequestModel, "alias-a")
+		info := &relaycommon.RelayInfo{
+			OriginModelName: "model-b",
+			ChannelMeta: &relaycommon.ChannelMeta{
+				UpstreamModelName: "model-c",
+			},
+		}
+		logModel, upstreamModel, isMapped := resolveRelayLogModelNames(ctx, info)
+		require.Equal(t, "alias-a", logModel)
+		require.Equal(t, "model-c", upstreamModel)
+		require.True(t, isMapped)
+	})
+
+	t.Run("no mapping", func(t *testing.T) {
+		common.SetContextKey(ctx, constant.ContextKeyRequestModel, "")
+		info := &relaycommon.RelayInfo{
+			OriginModelName: "model-b",
+			ChannelMeta: &relaycommon.ChannelMeta{
+				UpstreamModelName: "model-b",
+			},
+		}
+		logModel, upstreamModel, isMapped := resolveRelayLogModelNames(ctx, info)
+		require.Equal(t, "model-b", logModel)
+		require.Equal(t, "model-b", upstreamModel)
+		require.False(t, isMapped)
+	})
+}
+
 func TestCalculateTextQuotaSummaryUnifiedForClaudeSemantic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()

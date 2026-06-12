@@ -136,6 +136,81 @@ func TestRecordRelayErrorLogUsesPromptTokensFallback(t *testing.T) {
 	require.Equal(t, 0, logs[0].CompletionTokens)
 }
 
+func TestRecordRelayErrorLogUsesRequestModelWhenMapped(t *testing.T) {
+	db := setupRelayCancelControllerTestDB(t)
+	originalErrorLogEnabled := constant.ErrorLogEnabled
+	constant.ErrorLogEnabled = true
+	t.Cleanup(func() {
+		constant.ErrorLogEnabled = originalErrorLogEnabled
+	})
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Set("id", 2)
+	ctx.Set("username", "alice")
+	ctx.Set("token_name", "default")
+	ctx.Set("token_id", 18)
+	ctx.Set("original_model", "gpt-5.5")
+	ctx.Set("group", "auto")
+	ctx.Set("channel_id", 5)
+	ctx.Set("channel_name", "primary")
+	ctx.Set("channel_type", 1)
+	ctx.Set("use_channel", []string{"5"})
+	common.SetContextKey(ctx, constant.ContextKeyRequestModel, "alias-a")
+	common.SetContextKey(ctx, constant.ContextKeyUpstreamModel, "gpt-5.5")
+
+	recordRelayErrorLog(ctx, types.NewErrorWithStatusCode(errors.New("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway))
+
+	var logs []model.Log
+	require.NoError(t, db.Find(&logs).Error)
+	require.Len(t, logs, 1)
+	require.Equal(t, "alias-a", logs[0].ModelName)
+	var other map[string]interface{}
+	require.NoError(t, common.Unmarshal([]byte(logs[0].Other), &other))
+	require.Equal(t, true, other["is_model_mapped"])
+	require.Equal(t, "gpt-5.5", other["upstream_model_name"])
+	require.Equal(t, "alias-a", other["request_model_name"])
+}
+
+func TestRecordRelayErrorLogUsesFinalUpstreamModelWhenDoubleMapped(t *testing.T) {
+	db := setupRelayCancelControllerTestDB(t)
+	originalErrorLogEnabled := constant.ErrorLogEnabled
+	constant.ErrorLogEnabled = true
+	t.Cleanup(func() {
+		constant.ErrorLogEnabled = originalErrorLogEnabled
+	})
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Set("id", 2)
+	ctx.Set("username", "alice")
+	ctx.Set("token_name", "default")
+	ctx.Set("token_id", 18)
+	ctx.Set("original_model", "model-b")
+	ctx.Set("group", "auto")
+	ctx.Set("channel_id", 5)
+	ctx.Set("channel_name", "primary")
+	ctx.Set("channel_type", 1)
+	ctx.Set("use_channel", []string{"5"})
+	common.SetContextKey(ctx, constant.ContextKeyRequestModel, "alias-a")
+	common.SetContextKey(ctx, constant.ContextKeyUpstreamModel, "model-c")
+
+	recordRelayErrorLog(ctx, types.NewErrorWithStatusCode(errors.New("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway))
+
+	var logs []model.Log
+	require.NoError(t, db.Find(&logs).Error)
+	require.Len(t, logs, 1)
+	require.Equal(t, "alias-a", logs[0].ModelName)
+	var other map[string]interface{}
+	require.NoError(t, common.Unmarshal([]byte(logs[0].Other), &other))
+	require.Equal(t, true, other["is_model_mapped"])
+	require.Equal(t, "model-c", other["upstream_model_name"])
+}
+
 func TestRecordConsumeLogAddsRequestMetadata(t *testing.T) {
 	db := setupRelayCancelControllerTestDB(t)
 	originalLogConsumeEnabled := common.LogConsumeEnabled

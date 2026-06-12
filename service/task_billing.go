@@ -18,6 +18,7 @@ import (
 // 实际扣费已由 BillingSession（PreConsumeBilling + SettleBilling）完成。
 func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	tokenName := c.GetString("token_name")
+	logModel, upstreamModel, isMapped := resolveRelayLogModelNames(c, info)
 	logContent := fmt.Sprintf("操作 %s", info.Action)
 	// 支持任务仅按次计费
 	if common.StringsContains(constant.TaskPricePatches, info.OriginModelName) {
@@ -46,13 +47,10 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
 		other["user_group_ratio"] = info.PriceData.GroupRatioInfo.GroupSpecialRatio
 	}
-	if info.IsModelMapped {
-		other["is_model_mapped"] = true
-		other["upstream_model_name"] = info.UpstreamModelName
-	}
+	applyMappedModelInfo(other, logModel, upstreamModel, isMapped)
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId: info.ChannelId,
-		ModelName: info.OriginModelName,
+		ModelName: logModel,
 		TokenName: tokenName,
 		Quota:     info.PriceData.Quota,
 		Content:   logContent,
@@ -132,10 +130,10 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 		}
 	}
 	props := task.Properties
-	if props.UpstreamModelName != "" && props.UpstreamModelName != props.OriginModelName {
-		other["is_model_mapped"] = true
-		other["upstream_model_name"] = props.UpstreamModelName
-	}
+	requestModel := strings.TrimSpace(props.OriginModelName)
+	upstreamModel := strings.TrimSpace(props.UpstreamModelName)
+	isMapped := requestModel != "" && upstreamModel != "" && requestModel != upstreamModel
+	applyMappedModelInfo(other, requestModel, upstreamModel, isMapped)
 	return other
 }
 
