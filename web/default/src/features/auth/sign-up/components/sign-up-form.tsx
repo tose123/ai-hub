@@ -87,6 +87,7 @@ export function SignUpForm({
     resolver: zodResolver(registerFormSchema),
     defaultValues: {
       username: '',
+      affCode: getAffiliateCode(),
       email: '',
       password: '',
       confirmPassword: '',
@@ -131,8 +132,13 @@ export function SignUpForm({
     const aff = new URLSearchParams(window.location.search).get('aff')?.trim()
     if (aff) {
       saveAffiliateCode(aff)
+      form.setValue('affCode', aff, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: true,
+      })
     }
-  }, [])
+  }, [form])
 
   async function onSubmit(data: z.infer<typeof registerFormSchema>) {
     if (requiresLegalConsent && !agreedToLegal) {
@@ -154,6 +160,9 @@ export function SignUpForm({
 
     if (!validateTurnstile()) return
 
+    const affiliateCode = data.affCode.trim()
+    saveAffiliateCode(affiliateCode)
+
     setIsLoading(true)
     try {
       const res = await register({
@@ -161,7 +170,7 @@ export function SignUpForm({
         password: data.password,
         email: data.email || undefined,
         verification_code: verificationCode || undefined,
-        aff_code: getAffiliateCode(),
+        aff_code: affiliateCode,
         turnstile: turnstileToken,
       })
 
@@ -271,6 +280,26 @@ export function SignUpForm({
               <FormLabel>{t('Confirm password')}</FormLabel>
               <FormControl>
                 <PasswordInput placeholder={t('Confirm password')} {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='affCode'
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{t('Affiliate code')}</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder={t('Enter your affiliate code')}
+                  autoCapitalize='off'
+                  autoCorrect='off'
+                  spellCheck={false}
+                  {...field}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>

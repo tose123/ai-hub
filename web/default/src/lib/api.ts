@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import axios, { type AxiosRequestConfig } from 'axios'
-import { t } from 'i18next'
+import i18n, { t } from 'i18next'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -138,12 +138,18 @@ function getUserId(): string | null {
   return null
 }
 
+function getRequestLanguage(): string {
+  const language = i18n.resolvedLanguage || i18n.language || 'en'
+  return language || 'en'
+}
+
 /**
  * Get common request headers (for both axios and SSE requests)
  */
 export function getCommonHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'Accept-Language': getRequestLanguage(),
   }
 
   const uid = getUserId()
@@ -160,6 +166,8 @@ export function getCommonHeaders(): Record<string, string> {
 
 // Attach user ID header for all requests
 api.interceptors.request.use((config) => {
+  ;(config.headers as Record<string, string>)['Accept-Language'] =
+    getRequestLanguage()
   const uid = getUserId()
   if (uid) {
     // Custom header for user identification
