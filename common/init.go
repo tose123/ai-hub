@@ -101,6 +101,12 @@ func InitEnv() {
 	// Initialize variables with GetEnvOrDefault
 	SyncFrequency = GetEnvOrDefault("SYNC_FREQUENCY", 60)
 	BatchUpdateInterval = GetEnvOrDefault("BATCH_UPDATE_INTERVAL", 5)
+	InviteCashbackPercent = GetEnvOrDefault("INVITE_CASHBACK_PERCENT", 10)
+	if InviteCashbackPercent <= 0 {
+		InviteCashbackPercent = 0
+	} else if InviteCashbackPercent > 100 {
+		InviteCashbackPercent = 100
+	}
 	RelayTimeout = GetEnvOrDefault("RELAY_TIMEOUT", 0)
 	RelayResponseHeaderTimeout = GetEnvOrDefault("RELAY_RESPONSE_HEADER_TIMEOUT", 30)
 	RelayImageResponseHeaderTimeout = GetEnvOrDefault("RELAY_IMAGE_RESPONSE_HEADER_TIMEOUT", 600)
