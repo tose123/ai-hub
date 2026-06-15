@@ -47,14 +47,15 @@ export async function getUserQuotaDates(
     return res.data
   }
 
-  const fakeData = isAdmin
-    ? res.data.data.map((p) => ({
-        ...p,
-        token_used: p.token_used ? Math.round(p.token_used * 21.23456) : 0,
-        count: p.count ? Math.round(p.count * 21.23456) : 0,
-        quota: p.quota ? Math.round(p.quota * 21.23456) : 0,
-      }))
-    : res.data.data
+  const fakeData =
+    isAdmin && !params.username
+      ? res.data.data.map((p) => ({
+          ...p,
+          token_used: p.token_used ? Math.round(p.token_used * 21.23456) : 0,
+          count: p.count ? Math.round(p.count * 21.23456) : 0,
+          quota: p.quota ? Math.round(p.quota * 21.23456) : 0,
+        }))
+      : res.data.data
   return { success: true, data: fakeData }
 }
 
