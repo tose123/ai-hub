@@ -126,6 +126,18 @@ func LogQuota(quota int) string {
 	case operation_setting.QuotaDisplayTypeCNY:
 		usd := q / common.QuotaPerUnit
 		cny := usd * operation_setting.USDExchangeRate
+		if cny > 1 {
+			return fmt.Sprintf("¥%.2f 额度", cny)
+		}
+		if cny > 0.1 {
+			return fmt.Sprintf("¥%.3f 额度", cny)
+		}
+		if cny > 0.01 {
+			return fmt.Sprintf("¥%.4f 额度", cny)
+		}
+		if cny > 0.001 {
+			return fmt.Sprintf("¥%.5f 额度", cny)
+		}
 		return fmt.Sprintf("¥%.6f 额度", cny)
 	case operation_setting.QuotaDisplayTypeCustom:
 		usd := q / common.QuotaPerUnit

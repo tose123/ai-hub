@@ -52,7 +52,7 @@ export function TransferDialog({
   }, [open])
 
   const handleConfirm = async () => {
-    const success = await onConfirm(amount)
+    const success = await onConfirm(availableQuota)
     if (success) {
       onOpenChange(false)
     }
@@ -95,7 +95,7 @@ export function TransferDialog({
           </div>
         </div>
 
-        <div className='space-y-3'>
+        {/* <div className='space-y-3'>
           <Label
             htmlFor='transfer-amount'
             className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
@@ -115,7 +115,7 @@ export function TransferDialog({
           <p className='text-muted-foreground text-xs'>
             {t('Minimum:')} {formatQuota(QUOTA_PER_DOLLAR)}
           </p>
-        </div>
+        </div> */}
       </div>
     </Dialog>
   )
