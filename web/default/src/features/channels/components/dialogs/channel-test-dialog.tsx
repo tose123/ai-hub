@@ -305,7 +305,7 @@ function ChannelTestDialogContent({
   const currentChannelId = currentRow.id
   const batchStopRequestedRef = useRef(false)
   const [endpointType, setEndpointType] = useState('auto')
-  const [isStreamTest, setIsStreamTest] = useState(false)
+  const [isStreamTest, setIsStreamTest] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({})
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
