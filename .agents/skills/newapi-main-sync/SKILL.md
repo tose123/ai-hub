@@ -1,6 +1,6 @@
 ---
 name: newapi-main-sync
-description: Fetch upstream newapi/main, merge it into local main, safely resolve unrelated conflicts, summarize backend/frontend updates after sync, and recommend key test areas.
+description: Fetch upstream newapi/main, merge it into local main with local-main precedence on same-feature conflicts, summarize backend/frontend updates after sync, and recommend key test areas.
 ---
 
 # Newapi Main Sync
@@ -8,6 +8,8 @@ description: Fetch upstream newapi/main, merge it into local main, safely resolv
 ## Purpose
 
 Update the local `main` branch with the latest code from the `newapi` remote's `main` branch. Use this when the user asks to pull, sync, update, or merge `newapi/main` into local `main`.
+
+Conflict precedence rule: when `newapi/main` and local `main` change the same functionality, local `main` is the source of truth. Preserve local `main` behavior by default, and only carry over upstream pieces that are clearly compatible and do not alter the local behavior contract.
 
 ## Workflow
 
@@ -60,10 +62,10 @@ git switch main
 
 ### 4. Merge upstream
 
-Merge upstream into local `main`:
+Merge upstream into local `main`, preferring local `main` on conflicting hunks:
 
 ```bash
-git merge --no-edit newapi/main
+git merge --no-edit -X ours newapi/main
 ```
 
 If the merge completes cleanly, continue to verification and reporting.
@@ -79,17 +81,24 @@ rg -n '<<<<<<<|=======|>>>>>>>' .
 
 Inspect each conflicted file and classify the conflict before editing.
 
-Safe-to-resolve unrelated conflicts include cases where the sides touch independent features, comments, formatting, generated ordering, translations, or adjacent code that can be combined without changing either side's behavior. Resolve these conservatively by preserving both intended changes and the existing project conventions. After resolving, report each automatically resolved file and the reason it was safe.
+Default rule: if both sides touch the same functionality or behavior, keep local `main`'s implementation. Treat the local side as the baseline and selectively re-apply only upstream edits that are obviously safe, such as comments, imports, tests, translations, formatting, or adjacent helper code that does not change runtime behavior.
 
-Ambiguous conflicts must be left for the user to choose. Treat a conflict as ambiguous when it changes the same behavior, public API, database schema or migration, billing logic, authentication, quota/rate-limit behavior, provider routing, model pricing, request/response DTO semantics, protected project identity, or any code path where keeping both sides would be a product decision.
+Safe-to-resolve conflicts include both:
 
-For ambiguous conflicts, do not guess. Report:
+- unrelated conflicts, where the sides touch independent features, comments, formatting, generated ordering, translations, or adjacent code that can be combined without changing either side's behavior;
+- same-feature conflicts where local `main` should win, and the upstream side only contributes non-behavioral or clearly compatible pieces around the local implementation.
+
+Resolve these conservatively by preserving local `main` behavior and the existing project conventions. After resolving, report each automatically resolved file and whether it was merged as unrelated-compatible or local-main-preferred.
+
+Escalate only when keeping local `main` behavior is not mechanically clear. Treat a conflict as escalation-worthy when it involves rename/delete conflicts, binary files, generated artifacts whose source is unknown, or structural changes where simply preferring local hunks may leave the code broken. Also escalate if the upstream side introduces a required dependency, schema shape, interface, or call-site contract that must be partially adopted for the local implementation to keep building or running.
+
+For escalation-worthy conflicts, do not guess. Report:
 
 - the conflicted file;
 - what local `main` is trying to keep;
 - what `newapi/main` is trying to introduce;
-- the practical impact of each side;
-- 2-3 concrete resolution options, with a recommended option only when the evidence is strong.
+- why a simple local-main-preferred resolution may still be unsafe;
+- 2-3 concrete resolution options, with the recommended option biased toward preserving local `main` behavior when feasible.
 
 If all conflicts are safely resolved, stage only the resolved files and complete the merge:
 
@@ -151,8 +160,8 @@ Reply in Chinese with:
 
 - the fetched `newapi/main` short commit;
 - whether the merge was fast-forward, merge commit, clean merge, conflict-resolved merge, or blocked by ambiguous conflicts;
-- conflicts automatically resolved, if any;
-- ambiguous conflicts and options, if any;
+- conflicts automatically resolved, if any, and whether they were unrelated-compatible or local-main-preferred;
+- escalation-worthy conflicts and options, if any;
 - backend main updates, if any;
 - frontend main updates, if any;
 - other config/deploy/doc updates, if any;
