@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -250,6 +251,71 @@ func TestRecordConsumeLogAddsRequestMetadata(t *testing.T) {
 	require.Equal(t, false, other["client_canceled"])
 	require.Equal(t, "consume-log-test", other["user_agent"])
 	require.Equal(t, "ok", other["existing"])
+}
+
+func TestUserLogsHideShouldRetryEntriesAndStatsIgnoreThem(t *testing.T) {
+	db := setupRelayCancelControllerTestDB(t)
+	now := time.Now().Unix()
+
+	logs := []*model.Log{
+		{
+			UserId:      2,
+			Username:    "alice",
+			CreatedAt:   100,
+			Type:        model.LogTypeError,
+			Content:     "retrying error",
+			ModelName:   "gpt-5.5",
+			TokenName:   "default",
+			RequestId:   "req-retry",
+			ShouldRetry: 1,
+		},
+		{
+			UserId:            2,
+			Username:          "alice",
+			CreatedAt:         now,
+			Type:              model.LogTypeConsume,
+			Content:           "final success",
+			ModelName:         "gpt-5.5",
+			TokenName:         "default",
+			RequestId:         "req-retry",
+			Quota:             30,
+			PromptTokens:      10,
+			CompletionTokens:  20,
+			UpstreamRequestId: "up-1",
+		},
+		{
+			UserId:           2,
+			Username:         "alice",
+			CreatedAt:        now,
+			Type:             model.LogTypeConsume,
+			Content:          "hidden consume",
+			ModelName:        "gpt-5.5",
+			TokenName:        "default",
+			RequestId:        "req-hidden-consume",
+			Quota:            99,
+			PromptTokens:     40,
+			CompletionTokens: 60,
+			ShouldRetry:      1,
+		},
+	}
+	require.NoError(t, db.Create(&logs).Error)
+
+	userLogs, total, err := model.GetUserLogs(2, model.LogTypeUnknown, 0, 0, "", "", 0, 10, "", "", "")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, userLogs, 1)
+	require.Equal(t, "final success", userLogs[0].Content)
+
+	allLogs, adminTotal, err := model.GetAllLogs(model.LogTypeUnknown, 0, 0, "", "", "", 0, 10, 0, "", "", "")
+	require.NoError(t, err)
+	require.Equal(t, int64(3), adminTotal)
+	require.Len(t, allLogs, 3)
+
+	stat, err := model.SumUsedQuota(model.LogTypeUnknown, 0, 0, "", "alice", "", 0, "", true)
+	require.NoError(t, err)
+	require.Equal(t, 30, stat.Quota)
+	require.Equal(t, 1, stat.Rpm)
+	require.Equal(t, 30, stat.Tpm)
 }
 
 func setupRelayCancelControllerTestDB(t *testing.T) *gorm.DB {

@@ -52,6 +52,7 @@ type Log struct {
 	Ip                string `json:"ip" gorm:"index;default:''"`
 	RequestId         string `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_logs_request_id;default:''"`
 	UpstreamRequestId string `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
+	ShouldRetry       int    `json:"-" gorm:"default:0;index"`
 	Other             string `json:"other"`
 }
 
@@ -78,6 +79,10 @@ func enrichRequestLogOther(c *gin.Context, other map[string]interface{}) map[str
 		}
 	}
 	return other
+}
+
+func applyUserVisibleLogFilter(tx *gorm.DB) *gorm.DB {
+	return tx.Where("(logs.should_retry = ? OR logs.should_retry IS NULL)", 0)
 }
 
 func formatUserLogs(logs []*Log, startIdx int) {
@@ -244,7 +249,7 @@ func RecordTopupLog(userId int, content string, callerIp string, paymentMethod s
 }
 
 func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
-	isStream bool, group string, promptTokens int, other map[string]interface{}) {
+	isStream bool, group string, promptTokens int, other map[string]interface{}) int {
 	logger.LogInfo(c, fmt.Sprintf("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, channelId, modelName, tokenName, common.LocalLogPreview(content)))
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
@@ -287,7 +292,19 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 	err := LOG_DB.Create(log).Error
 	if err != nil {
 		logger.LogError(c, "failed to record log: "+err.Error())
+		return 0
 	}
+	return log.Id
+}
+
+func MarkLogShouldRetry(logID int) error {
+	if logID == 0 {
+		return nil
+	}
+	return LOG_DB.Model(&Log{}).
+		Where("id = ? AND request_id <> ''", logID).
+		Update("should_retry", 1).
+		Error
 }
 
 type RecordConsumeLogParams struct {
@@ -526,6 +543,7 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	} else {
 		tx = LOG_DB.Where("logs.user_id = ? and logs.type = ?", userId, logType)
 	}
+	tx = applyUserVisibleLogFilter(tx)
 
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
 		return nil, 0, err
@@ -569,11 +587,16 @@ type Stat struct {
 	Tpm   int `json:"tpm"`
 }
 
-func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
+func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string, userVisibleOnly bool) (stat Stat, err error) {
 	tx := LOG_DB.Table("logs").Select("sum(quota) quota")
 
 	// 为rpm和tpm创建单独的查询
 	rpmTpmQuery := LOG_DB.Table("logs").Select("count(*) rpm, sum(prompt_tokens) + sum(completion_tokens) tpm")
+
+	if userVisibleOnly {
+		tx = applyUserVisibleLogFilter(tx)
+		rpmTpmQuery = applyUserVisibleLogFilter(rpmTpmQuery)
+	}
 
 	if tx, err = applyExplicitLogTextFilter(tx, "username", username); err != nil {
 		return stat, err

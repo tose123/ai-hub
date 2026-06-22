@@ -264,10 +264,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 
-		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+		logID := processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
 		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
 			break
+		}
+		if err := model.MarkLogShouldRetry(logID); err != nil {
+			logger.LogError(c, "failed to mark retry log: "+err.Error())
 		}
 	}
 
@@ -399,7 +402,7 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	return operation_setting.ShouldRetryByStatusCode(code)
 }
 
-func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
+func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) int {
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
@@ -409,10 +412,10 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		})
 	}
 
-	recordRelayErrorLog(c, err)
+	return recordRelayErrorLog(c, err)
 }
 
-func recordRelayErrorLog(c *gin.Context, err *types.NewAPIError) {
+func recordRelayErrorLog(c *gin.Context, err *types.NewAPIError) int {
 	if constant.ErrorLogEnabled && types.IsRecordErrorLog(err) {
 		if types.IsClientCanceledError(err) {
 			common.MarkClientGone(c)
@@ -453,8 +456,9 @@ func recordRelayErrorLog(c *gin.Context, err *types.NewAPIError) {
 		if promptTokens == 0 {
 			promptTokens = common.GetContextKeyInt(c, constant.ContextKeyPromptTokens)
 		}
-		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, promptTokens, other)
+		return model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, promptTokens, other)
 	}
+	return 0
 }
 
 func RelayMidjourney(c *gin.Context) {
@@ -608,8 +612,9 @@ func RelayTask(c *gin.Context) {
 			break
 		}
 
+		logID := 0
 		if !taskErr.LocalError {
-			processChannelError(c,
+			logID = processChannelError(c,
 				*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
 					common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()),
 				types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
@@ -617,6 +622,9 @@ func RelayTask(c *gin.Context) {
 
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
 			break
+		}
+		if err := model.MarkLogShouldRetry(logID); err != nil {
+			logger.LogError(c, "failed to mark retry log: "+err.Error())
 		}
 	}
 
