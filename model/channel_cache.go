@@ -23,6 +23,40 @@ var channelsIDM map[int]*Channel                     // all channels include dis
 var channel2advancedCustomConfig map[int]*dto.AdvancedCustomConfig
 var channelSyncLock sync.RWMutex
 
+func channelSupportsRequestPathNoLock(channel *Channel, requestPath string) bool {
+	if channel == nil || requestPath == "" || channel.Type != constant.ChannelTypeAdvancedCustom {
+		return true
+	}
+	if config, ok := channel2advancedCustomConfig[channel.Id]; ok && config != nil {
+		return config.SupportsPath(requestPath)
+	}
+	config := channel.GetOtherSettings().AdvancedCustom
+	return config != nil && config.SupportsPath(requestPath)
+}
+
+func ChannelSupportsRequestPath(channel *Channel, requestPath string) bool {
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+	return channelSupportsRequestPathNoLock(channel, requestPath)
+}
+
+func filterChannelsByRequestPath(channelIDs []int, requestPath string) []int {
+	if requestPath == "" || len(channelIDs) == 0 {
+		return channelIDs
+	}
+	filtered := make([]int, 0, len(channelIDs))
+	for _, channelID := range channelIDs {
+		channel, ok := channelsIDM[channelID]
+		if !ok {
+			continue
+		}
+		if channelSupportsRequestPathNoLock(channel, requestPath) {
+			filtered = append(filtered, channelID)
+		}
+	}
+	return filtered
+}
+
 func InitChannelCache() {
 	if !common.MemoryCacheEnabled {
 		return

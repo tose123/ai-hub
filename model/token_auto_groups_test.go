@@ -44,6 +44,13 @@ type sqliteTokenColumnInfo struct {
 func openTokenModelTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
+	prevDB := DB
+	prevLogDB := LOG_DB
+	prevUsingSQLite := common.UsingSQLite
+	prevUsingMySQL := common.UsingMySQL
+	prevUsingPostgreSQL := common.UsingPostgreSQL
+	prevRedisEnabled := common.RedisEnabled
+
 	common.UsingSQLite = true
 	common.UsingMySQL = false
 	common.UsingPostgreSQL = false
@@ -58,6 +65,12 @@ func openTokenModelTestDB(t *testing.T) *gorm.DB {
 	LOG_DB = db
 
 	t.Cleanup(func() {
+		DB = prevDB
+		LOG_DB = prevLogDB
+		common.UsingSQLite = prevUsingSQLite
+		common.UsingMySQL = prevUsingMySQL
+		common.UsingPostgreSQL = prevUsingPostgreSQL
+		common.RedisEnabled = prevRedisEnabled
 		sqlDB, err := db.DB()
 		if err == nil {
 			_ = sqlDB.Close()
