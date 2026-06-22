@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, type ComponentProps, type ReactNode } from 'react'
-import { type Table } from '@tanstack/react-table'
+import type { Table } from '@tanstack/react-table'
 import { useMediaQuery } from '@/hooks'
 import { ChevronDown, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -45,6 +45,7 @@ interface LogsFilterToolbarProps<TData> {
   mobileFilters?: ReactNode
   mobileFilterCount?: number
   stats?: ReactNode
+  actionStart?: ReactNode
   hasActiveFilters: boolean
   hasAdvancedActiveFilters?: boolean
   advancedFilterCount?: number
@@ -118,6 +119,34 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
     props.onSearch()
     setMobileFiltersOpen(false)
   }
+
+  const advancedToggle = hasAdvancedFilters ? (
+    <Button
+      type='button'
+      variant='ghost'
+      onClick={() => setAdvancedOpen((open) => !open)}
+      aria-expanded={advancedOpen}
+      className={cn(
+        'text-muted-foreground hover:text-foreground gap-1 px-2',
+        props.hasAdvancedActiveFilters &&
+          !advancedOpen &&
+          'text-primary hover:text-primary'
+      )}
+    >
+      {advancedOpen ? t('Collapse') : t('Expand')}
+      {activeAdvancedCount > 0 && (
+        <Badge className='ml-0.5 size-5 justify-center p-0 text-[10px]'>
+          {activeAdvancedCount}
+        </Badge>
+      )}
+      <ChevronDown
+        className={cn(
+          'size-3.5 transition-transform duration-200',
+          advancedOpen && 'rotate-180'
+        )}
+      />
+    </Button>
+  ) : null
 
   if (isMobile && props.mobilePinnedFilters != null) {
     return (
@@ -209,10 +238,22 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
         props.className
       )}
     >
-      <div className='grid grid-cols-1 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]'>
-        {props.primaryFilters}
-        {advancedOpen && props.advancedFilters}
+      <div className='flex flex-wrap items-start gap-2'>
+        <div className='grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]'>
+          {props.primaryFilters}
+        </div>
+        {advancedToggle && (
+          <div className='flex shrink-0 items-center justify-end'>
+            {advancedToggle}
+          </div>
+        )}
       </div>
+
+      {advancedOpen && props.advancedFilters && (
+        <div className='mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]'>
+          {props.advancedFilters}
+        </div>
+      )}
 
       <div className='mt-2 flex flex-wrap items-center gap-2'>
         {props.stats}
