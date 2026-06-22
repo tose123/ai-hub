@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect } from 'react'
-import { Gift, ExternalLink, Loader2, Receipt, WalletCards } from 'lucide-react'
+import { Gift, Loader2, Receipt, WalletCards } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -460,11 +460,11 @@ export function RechargeFormCard({
         </div>
       ) : (
         <Alert>
-          <AlertDescription>
+          <div className='mx-2 font-bold'>
             {t(
               'Online topup is not enabled. Please use redemption code or contact administrator.'
             )}
-          </AlertDescription>
+          </div>
         </Alert>
       )}
 
@@ -515,10 +515,18 @@ export function RechargeFormCard({
             </Button>
           </div>
           {topupLink && (
-            <Button variant='default' className='h-9 w-full px-4'>
-              <a href={topupLink} target='_blank' rel='noopener noreferrer'>
-                {t('Need a redemption code?')} {t('Get one here')}
-              </a>
+            <Button
+              variant='default'
+              className='h-9 w-full px-4'
+              onClick={() => {
+                window.open(
+                  topupLink,
+                  '_blank',
+                  'noopener,noreferrer',
+                );
+              }}
+            >
+              {t('Need a redemption code?')} {t('Get one here')}
             </Button>
           )}
         </div>
