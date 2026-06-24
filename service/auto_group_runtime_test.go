@@ -161,6 +161,9 @@ func seedPriorityAutoGroupData(t *testing.T, db *gorm.DB, modelName string, grou
 func collectAutoGroupSelections(t *testing.T, param *RetryParam, maxAttempts int) []string {
 	t.Helper()
 
+	if param.ExcludedChannelIDs == nil {
+		param.ExcludedChannelIDs = make(map[int]struct{})
+	}
 	names := make([]string, 0, maxAttempts)
 	for i := 0; i < maxAttempts; i++ {
 		channel, _, err := CacheGetRandomSatisfiedChannel(param)
@@ -169,6 +172,10 @@ func collectAutoGroupSelections(t *testing.T, param *RetryParam, maxAttempts int
 			break
 		}
 		names = append(names, channel.Name)
+		if param.ExcludedChannelIDs == nil {
+			param.ExcludedChannelIDs = make(map[int]struct{})
+		}
+		param.ExcludedChannelIDs[channel.Id] = struct{}{}
 		param.IncreaseRetry()
 	}
 	return names
@@ -261,6 +268,10 @@ func TestCacheGetRandomSatisfiedChannelAffinityFallbackStartsAtFirstPriority(t *
 	require.Equal(t, "G1", selectedGroup)
 	require.Equal(t, "G1_C9", channel.Name)
 	require.Equal(t, 0, param.GetRetry())
+	if param.ExcludedChannelIDs == nil {
+		param.ExcludedChannelIDs = make(map[int]struct{})
+	}
+	param.ExcludedChannelIDs[channel.Id] = struct{}{}
 
 	param.IncreaseRetry()
 	channel, selectedGroup, err = CacheGetRandomSatisfiedChannel(param)
@@ -309,6 +320,40 @@ func TestCacheGetRandomSatisfiedChannelWithoutCrossGroupRetryCapsByPriorityCount
 	names := collectAutoGroupSelections(t, param, 5)
 
 	require.Equal(t, []string{"G1_C9", "G1_C8"}, names)
+}
+
+func TestCacheGetRandomSatisfiedChannelStaysInCurrentGroupUntilSamePriorityChannelsExhausted(t *testing.T) {
+	db := setupAutoGroupRuntimeTestDB(t)
+	withRuntimeAutoGroups(t, []string{"G1", "G2"})
+	withRuntimeUserUsableGroups(t, []string{"G1", "G2"})
+	withRuntimeRetryTimes(t, 5)
+
+	weightValue := uint(5)
+	priorityHigh := int64(9)
+	priorityLow := int64(8)
+	require.NoError(t, db.Create(&[]model.Channel{
+		{Id: 3001, Name: "G1_A", Key: "sk-g1-a", Status: common.ChannelStatusEnabled, Group: "G1", Models: "runtime-model", Priority: &priorityHigh, Weight: &weightValue},
+		{Id: 3002, Name: "G1_B", Key: "sk-g1-b", Status: common.ChannelStatusEnabled, Group: "G1", Models: "runtime-model", Priority: &priorityHigh, Weight: &weightValue},
+		{Id: 3003, Name: "G2_A", Key: "sk-g2-a", Status: common.ChannelStatusEnabled, Group: "G2", Models: "runtime-model", Priority: &priorityLow, Weight: &weightValue},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "G1", Model: "runtime-model", ChannelId: 3001, Enabled: true, Priority: &priorityHigh, Weight: weightValue},
+		{Group: "G1", Model: "runtime-model", ChannelId: 3002, Enabled: true, Priority: &priorityHigh, Weight: weightValue},
+		{Group: "G2", Model: "runtime-model", ChannelId: 3003, Enabled: true, Priority: &priorityLow, Weight: weightValue},
+	}).Error)
+	model.InitChannelCache()
+
+	ctx := buildRuntimeAutoGroupContext("default", nil)
+	common.SetContextKey(ctx, constant.ContextKeyTokenCrossGroupRetry, true)
+	param := &RetryParam{
+		Ctx: ctx, TokenGroup: "auto", ModelName: "runtime-model", Retry: common.GetPointer(0),
+	}
+
+	names := collectAutoGroupSelections(t, param, 4)
+
+	require.Len(t, names, 3)
+	require.ElementsMatch(t, []string{"G1_A", "G1_B"}, names[:2])
+	require.Equal(t, "G2_A", names[2])
 }
 
 func TestCacheGetRandomSatisfiedChannelWithoutCrossGroupRetryStopsAfterCurrentGroup(t *testing.T) {

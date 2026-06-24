@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -271,6 +272,7 @@ func getChatDetail(a *Adaptor, c *gin.Context, info *relaycommon.RelayInfo) (*ht
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
+	common.SetContextKey(c, constant.ContextKeyUpstreamAttempted, true)
 	resp, err := doRequest(req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)

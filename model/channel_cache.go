@@ -57,6 +57,33 @@ func filterChannelsByRequestPath(channelIDs []int, requestPath string) []int {
 	return filtered
 }
 
+func filterExcludedChannelIDs(channelIDs []int, excludedChannelIDs map[int]struct{}) []int {
+	if len(channelIDs) == 0 || len(excludedChannelIDs) == 0 {
+		return channelIDs
+	}
+	filtered := make([]int, 0, len(channelIDs))
+	for _, channelID := range channelIDs {
+		if _, excluded := excludedChannelIDs[channelID]; excluded {
+			continue
+		}
+		filtered = append(filtered, channelID)
+	}
+	return filtered
+}
+
+func getFilteredCachedChannelIDs(group string, model string, requestPath string, excludedChannelIDs map[int]struct{}) []int {
+	channels := filterExcludedChannelIDs(filterChannelsByRequestPath(group2model2channels[group][model], requestPath), excludedChannelIDs)
+	if len(channels) > 0 {
+		return channels
+	}
+
+	normalizedModel := ratio_setting.FormatMatchingModelName(model)
+	if normalizedModel == "" || normalizedModel == model {
+		return nil
+	}
+	return filterExcludedChannelIDs(filterChannelsByRequestPath(group2model2channels[group][normalizedModel], requestPath), excludedChannelIDs)
+}
+
 func InitChannelCache() {
 	if !common.MemoryCacheEnabled {
 		return
@@ -139,23 +166,16 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
+func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string, excludedChannelIDs map[int]struct{}) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, requestPath)
+		return GetChannel(group, model, retry, requestPath, excludedChannelIDs)
 	}
 
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
 
-	// First, try to find channels with the exact model name.
-	channels := filterChannelsByRequestPath(group2model2channels[group][model], requestPath)
-
-	// If no channels found, try to find channels with the normalized model name.
-	if len(channels) == 0 {
-		normalizedModel := ratio_setting.FormatMatchingModelName(model)
-		channels = filterChannelsByRequestPath(group2model2channels[group][normalizedModel], requestPath)
-	}
+	channels := getFilteredCachedChannelIDs(group, model, requestPath, excludedChannelIDs)
 
 	if len(channels) == 0 {
 		return nil, nil
@@ -168,26 +188,39 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 		return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channels[0])
 	}
 
-	uniquePriorities := make(map[int]bool)
-	for _, channelId := range channels {
-		if channel, ok := channelsIDM[channelId]; ok {
-			uniquePriorities[int(channel.GetPriority())] = true
-		} else {
-			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
+	targetPriority := int64(0)
+	if len(excludedChannelIDs) == 0 {
+		uniquePriorities := make(map[int]bool)
+		for _, channelId := range channels {
+			if channel, ok := channelsIDM[channelId]; ok {
+				uniquePriorities[int(channel.GetPriority())] = true
+			} else {
+				return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
+			}
+		}
+		var sortedUniquePriorities []int
+		for priority := range uniquePriorities {
+			sortedUniquePriorities = append(sortedUniquePriorities, priority)
+		}
+		sort.Sort(sort.Reverse(sort.IntSlice(sortedUniquePriorities)))
+		if retry >= len(uniquePriorities) {
+			retry = len(uniquePriorities) - 1
+		}
+		targetPriority = int64(sortedUniquePriorities[retry])
+	} else {
+		hasTargetPriority := false
+		for _, channelId := range channels {
+			if channel, ok := channelsIDM[channelId]; ok {
+				if !hasTargetPriority || channel.GetPriority() > targetPriority {
+					targetPriority = channel.GetPriority()
+					hasTargetPriority = true
+				}
+			} else {
+				return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
+			}
 		}
 	}
-	var sortedUniquePriorities []int
-	for priority := range uniquePriorities {
-		sortedUniquePriorities = append(sortedUniquePriorities, priority)
-	}
-	sort.Sort(sort.Reverse(sort.IntSlice(sortedUniquePriorities)))
 
-	if retry >= len(uniquePriorities) {
-		retry = len(uniquePriorities) - 1
-	}
-	targetPriority := int64(sortedUniquePriorities[retry])
-
-	// get the priority for the given retry number
 	var sumWeight = 0
 	var targetChannels []*Channel
 	for _, channelId := range channels {
@@ -236,21 +269,15 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 	return nil, errors.New("channel not found")
 }
 
-func GetSatisfiedChannelPriorityCount(group string, model string) (int, error) {
+func GetSatisfiedChannelPriorityCount(group string, model string, requestPath string, excludedChannelIDs map[int]struct{}) (int, error) {
 	if !common.MemoryCacheEnabled {
-		return GetChannelPriorityCount(group, model)
+		return GetChannelPriorityCount(group, model, requestPath, excludedChannelIDs)
 	}
 
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
 
-	channels := group2model2channels[group][model]
-	if len(channels) == 0 {
-		normalizedModel := ratio_setting.FormatMatchingModelName(model)
-		if normalizedModel != "" && normalizedModel != model {
-			channels = group2model2channels[group][normalizedModel]
-		}
-	}
+	channels := getFilteredCachedChannelIDs(group, model, requestPath, excludedChannelIDs)
 	if len(channels) == 0 {
 		return 0, nil
 	}
@@ -264,6 +291,17 @@ func GetSatisfiedChannelPriorityCount(group string, model string) (int, error) {
 		uniquePriorities[channel.GetPriority()] = struct{}{}
 	}
 	return len(uniquePriorities), nil
+}
+
+func GetSatisfiedChannelCount(group string, model string, requestPath string, excludedChannelIDs map[int]struct{}) (int, error) {
+	if !common.MemoryCacheEnabled {
+		return GetChannelCount(group, model, requestPath, excludedChannelIDs)
+	}
+
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+
+	return len(getFilteredCachedChannelIDs(group, model, requestPath, excludedChannelIDs)), nil
 }
 
 func CacheGetChannel(id int) (*Channel, error) {

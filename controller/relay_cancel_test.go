@@ -13,6 +13,8 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -42,6 +44,181 @@ func TestShouldRetryRegular500StillRetries(t *testing.T) {
 	apiErr := types.NewErrorWithStatusCode(errors.New("upstream error"), types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
 
 	require.True(t, shouldRetry(ctx, apiErr, 1))
+}
+
+func TestRelayFailurePriorityUpdateSkipsClientCanceled(t *testing.T) {
+	db := setupRelayPriorityControllerTestDB(t)
+	priority := int64(0)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:       5,
+		Name:     "primary",
+		Key:      "sk-primary",
+		Status:   common.ChannelStatusEnabled,
+		Group:    "default",
+		Models:   "gpt-5.5",
+		Priority: &priority,
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     "gpt-5.5",
+		ChannelId: 5,
+		Enabled:   true,
+		Priority:  &priority,
+		Weight:    1,
+	}).Error)
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUpstreamAttempted, true)
+
+	apiErr := types.NewClientCanceledError(context.Canceled)
+	if !types.IsClientCanceledError(apiErr) && common.GetContextKeyBool(ctx, constant.ContextKeyUpstreamAttempted) {
+		_, err := model.DeprioritizeFailedChannel(5)
+		require.NoError(t, err)
+	}
+
+	channel, err := model.GetChannelById(5, true)
+	require.NoError(t, err)
+	require.NotNil(t, channel.Priority)
+	require.Equal(t, int64(0), *channel.Priority)
+}
+
+func TestRelayFailurePriorityUpdateAfterUpstreamAttempt(t *testing.T) {
+	db := setupRelayPriorityControllerTestDB(t)
+	priority := int64(0)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:       6,
+		Name:     "primary",
+		Key:      "sk-primary",
+		Status:   common.ChannelStatusEnabled,
+		Group:    "default",
+		Models:   "gpt-5.5",
+		Priority: &priority,
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     "gpt-5.5",
+		ChannelId: 6,
+		Enabled:   true,
+		Priority:  &priority,
+		Weight:    1,
+	}).Error)
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUpstreamAttempted, true)
+
+	apiErr := types.NewErrorWithStatusCode(errors.New("upstream failed"), types.ErrorCodeDoRequestFailed, http.StatusBadGateway)
+	if !types.IsClientCanceledError(apiErr) && common.GetContextKeyBool(ctx, constant.ContextKeyUpstreamAttempted) {
+		updated, err := model.DeprioritizeFailedChannel(6)
+		require.NoError(t, err)
+		require.True(t, updated)
+	}
+
+	channel, err := model.GetChannelById(6, true)
+	require.NoError(t, err)
+	require.NotNil(t, channel.Priority)
+	require.Less(t, *channel.Priority, int64(0))
+}
+
+func TestGetChannelSkipsUsedChannelAfterPriorityRefresh(t *testing.T) {
+	db := setupRelayPriorityControllerTestDB(t)
+	highPriority := int64(0)
+	lowPriority := int64(-100)
+	weightValue := uint(1)
+	require.NoError(t, db.Create(&[]model.Channel{
+		{Id: 7, Name: "primary", Key: "sk-primary", Status: common.ChannelStatusEnabled, Group: "default", Models: "gpt-5.5", Priority: &highPriority, Weight: &weightValue},
+		{Id: 8, Name: "backup", Key: "sk-backup", Status: common.ChannelStatusEnabled, Group: "default", Models: "gpt-5.5", Priority: &lowPriority, Weight: &weightValue},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "gpt-5.5", ChannelId: 7, Enabled: true, Priority: &highPriority, Weight: weightValue},
+		{Group: "default", Model: "gpt-5.5", ChannelId: 8, Enabled: true, Priority: &lowPriority, Weight: weightValue},
+	}).Error)
+	model.InitChannelCache()
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "gpt-5.5",
+		TokenGroup:      "default",
+		ChannelMeta:     &relaycommon.ChannelMeta{},
+	}
+	retryParam := &service.RetryParam{
+		Ctx:         ctx,
+		TokenGroup:  "default",
+		ModelName:   "gpt-5.5",
+		RequestPath: ctx.Request.URL.Path,
+		Retry:       common.GetPointer(0),
+	}
+
+	channel, channelErr := getChannel(ctx, info, retryParam)
+	require.Nil(t, channelErr)
+	require.NotNil(t, channel)
+	require.Equal(t, 7, channel.Id)
+
+	addUsedChannel(ctx, channel.Id)
+	updated, err := model.DeprioritizeFailedChannel(channel.Id)
+	require.NoError(t, err)
+	require.True(t, updated)
+
+	retryParam.SetRetry(1)
+	retryParam.ExcludedChannelIDs = buildExcludedChannelIDs(ctx)
+	nextChannel, nextErr := getChannel(ctx, info, retryParam)
+	require.Nil(t, nextErr)
+	require.NotNil(t, nextChannel)
+	require.Equal(t, 8, nextChannel.Id)
+}
+
+func TestGetChannelSkipsLocallyFailedUsedChannel(t *testing.T) {
+	db := setupRelayPriorityControllerTestDB(t)
+	priority := int64(0)
+	weightValue := uint(1)
+	require.NoError(t, db.Create(&[]model.Channel{
+		{Id: 9, Name: "first", Key: "sk-first", Status: common.ChannelStatusEnabled, Group: "default", Models: "gpt-5.5", Priority: &priority, Weight: &weightValue},
+		{Id: 10, Name: "second", Key: "sk-second", Status: common.ChannelStatusEnabled, Group: "default", Models: "gpt-5.5", Priority: &priority, Weight: &weightValue},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "gpt-5.5", ChannelId: 9, Enabled: true, Priority: &priority, Weight: weightValue},
+		{Group: "default", Model: "gpt-5.5", ChannelId: 10, Enabled: true, Priority: &priority, Weight: weightValue},
+	}).Error)
+	model.InitChannelCache()
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "gpt-5.5",
+		TokenGroup:      "default",
+		ChannelMeta:     &relaycommon.ChannelMeta{},
+	}
+	retryParam := &service.RetryParam{
+		Ctx:         ctx,
+		TokenGroup:  "default",
+		ModelName:   "gpt-5.5",
+		RequestPath: ctx.Request.URL.Path,
+		Retry:       common.GetPointer(0),
+	}
+
+	channel, channelErr := getChannel(ctx, info, retryParam)
+	require.Nil(t, channelErr)
+	require.NotNil(t, channel)
+
+	addUsedChannel(ctx, channel.Id)
+	retryParam.SetRetry(1)
+	retryParam.ExcludedChannelIDs = buildExcludedChannelIDs(ctx)
+	nextChannel, nextErr := getChannel(ctx, info, retryParam)
+	require.Nil(t, nextErr)
+	require.NotNil(t, nextChannel)
+	require.NotEqual(t, channel.Id, nextChannel.Id)
 }
 
 func TestRecordRelayErrorLogClientCanceled(t *testing.T) {
@@ -347,6 +524,48 @@ func setupRelayCancelControllerTestDB(t *testing.T) *gorm.DB {
 		common.UsingMySQL = originalUsingMySQL
 		common.UsingPostgreSQL = originalUsingPostgreSQL
 		common.RedisEnabled = originalRedisEnabled
+
+		sqlDB, err := db.DB()
+		if err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	return db
+}
+
+func setupRelayPriorityControllerTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+
+	originalDB := model.DB
+	originalLOGDB := model.LOG_DB
+	originalUsingSQLite := common.UsingSQLite
+	originalUsingMySQL := common.UsingMySQL
+	originalUsingPostgreSQL := common.UsingPostgreSQL
+	originalRedisEnabled := common.RedisEnabled
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+
+	common.UsingSQLite = true
+	common.UsingMySQL = false
+	common.UsingPostgreSQL = false
+	common.RedisEnabled = false
+	common.MemoryCacheEnabled = true
+
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	model.DB = db
+	model.LOG_DB = db
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Log{}))
+
+	t.Cleanup(func() {
+		model.DB = originalDB
+		model.LOG_DB = originalLOGDB
+		common.UsingSQLite = originalUsingSQLite
+		common.UsingMySQL = originalUsingMySQL
+		common.UsingPostgreSQL = originalUsingPostgreSQL
+		common.RedisEnabled = originalRedisEnabled
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
 
 		sqlDB, err := db.DB()
 		if err == nil {

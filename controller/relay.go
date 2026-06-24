@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -187,10 +188,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}()
 
 	retryParam := &service.RetryParam{
-		Ctx:        c,
-		TokenGroup: relayInfo.TokenGroup,
-		ModelName:  model_setting.BaseModelForMatching(relayInfo.OriginModelName),
-		Retry:      common.GetPointer(0),
+		Ctx:                c,
+		TokenGroup:         relayInfo.TokenGroup,
+		ModelName:          model_setting.BaseModelForMatching(relayInfo.OriginModelName),
+		RequestPath:        c.Request.URL.Path,
+		Retry:              common.GetPointer(0),
+		ExcludedChannelIDs: map[int]struct{}{},
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
@@ -204,6 +207,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
+		common.SetContextKey(c, constant.ContextKeyUpstreamAttempted, false)
+		retryParam.ExcludedChannelIDs = buildExcludedChannelIDs(c)
 		if ctxErr := relayRequestContextErr(c); ctxErr != nil {
 			newAPIError = types.NewClientCanceledError(ctxErr)
 			relayInfo.LastError = newAPIError
@@ -263,6 +268,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			recordClientCanceled(newAPIError)
 			break
 		}
+		if common.GetContextKeyBool(c, constant.ContextKeyUpstreamAttempted) {
+			if _, err := model.DeprioritizeFailedChannel(channel.Id); err != nil {
+				logger.LogError(c, fmt.Sprintf("failed to update channel priority after upstream failure: channel_id=%d, err=%s", channel.Id, err.Error()))
+			}
+		}
 
 		logID := processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
@@ -297,6 +307,25 @@ func addUsedChannel(c *gin.Context, channelId int) {
 	useChannel := c.GetStringSlice("use_channel")
 	useChannel = append(useChannel, fmt.Sprintf("%d", channelId))
 	c.Set("use_channel", useChannel)
+}
+
+func buildExcludedChannelIDs(c *gin.Context) map[int]struct{} {
+	useChannel := c.GetStringSlice("use_channel")
+	if len(useChannel) == 0 {
+		return nil
+	}
+	excludedChannelIDs := make(map[int]struct{}, len(useChannel))
+	for _, channelIDStr := range useChannel {
+		channelID, err := strconv.Atoi(channelIDStr)
+		if err != nil {
+			continue
+		}
+		excludedChannelIDs[channelID] = struct{}{}
+	}
+	if len(excludedChannelIDs) == 0 {
+		return nil
+	}
+	return excludedChannelIDs
 }
 
 func relayRequestContextErr(c *gin.Context) error {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	common2 "github.com/QuantumNous/new-api/common"
+	projectconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
@@ -386,6 +387,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		targetHeader.Set(key, value)
 	}
 	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
+	common2.SetContextKey(c, projectconstant.ContextKeyUpstreamAttempted, true)
 	targetConn, _, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
 	if err != nil {
 		return nil, fmt.Errorf("dial failed to %s: %w", fullRequestURL, err)
@@ -517,6 +519,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		logger.LogInfo(c, "client canceled request before upstream request: "+ctxErr.Error())
 		return nil, types.NewClientCanceledError(ctxErr)
 	}
+	common2.SetContextKey(c, projectconstant.ContextKeyUpstreamAttempted, true)
 
 	var client *http.Client
 	var err error

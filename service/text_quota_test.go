@@ -1,19 +1,24 @@
 package service
 
 import (
+	"fmt"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func float64Ptr(v float64) *float64 {
@@ -625,4 +630,157 @@ func TestComposeTieredTextQuotaErrorFallbackUsesPreConsumedQuota(t *testing.T) {
 
 	require.Equal(t, int64(12500), summary.ToolCallSurchargeQuota.Round(0).IntPart())
 	require.Equal(t, 14500, quota)
+}
+
+func TestPostTextConsumeQuotaDeprioritizesWhenUsageMissing(t *testing.T) {
+	db := setupTextQuotaPriorityTestDB(t)
+	priority := int64(0)
+	weight := uint(1)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:       21,
+		Name:     "missing-usage",
+		Key:      "sk-missing-usage",
+		Status:   common.ChannelStatusEnabled,
+		Group:    "default",
+		Models:   "gpt-4.1",
+		Priority: &priority,
+		Weight:   &weight,
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     "gpt-4.1",
+		ChannelId: 21,
+		Enabled:   true,
+		Priority:  &priority,
+		Weight:    weight,
+	}).Error)
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+
+	relayInfo := &relaycommon.RelayInfo{
+		UserId:                1,
+		TokenId:               2,
+		UsingGroup:            "default",
+		OriginModelName:       "gpt-4.1",
+		FinalPreConsumedQuota: 123,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelId: 21,
+		},
+		PriceData: types.PriceData{
+			ModelRatio:      1,
+			CompletionRatio: 1,
+			GroupRatioInfo:  types.GroupRatioInfo{GroupRatio: 1},
+		},
+		StartTime: time.Now(),
+	}
+
+	PostTextConsumeQuota(ctx, relayInfo, nil, nil)
+
+	channel, err := model.GetChannelById(21, true)
+	require.NoError(t, err)
+	require.NotNil(t, channel.Priority)
+	require.Less(t, *channel.Priority, int64(0))
+}
+
+func TestPostTextConsumeQuotaSkipsDeprioritizeForPositivePriority(t *testing.T) {
+	db := setupTextQuotaPriorityTestDB(t)
+	priority := int64(5)
+	weight := uint(1)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:       22,
+		Name:     "positive-priority",
+		Key:      "sk-positive-priority",
+		Status:   common.ChannelStatusEnabled,
+		Group:    "default",
+		Models:   "gpt-4.1",
+		Priority: &priority,
+		Weight:   &weight,
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     "gpt-4.1",
+		ChannelId: 22,
+		Enabled:   true,
+		Priority:  &priority,
+		Weight:    weight,
+	}).Error)
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+
+	relayInfo := &relaycommon.RelayInfo{
+		UserId:                1,
+		TokenId:               2,
+		UsingGroup:            "default",
+		OriginModelName:       "gpt-4.1",
+		FinalPreConsumedQuota: 123,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelId: 22,
+		},
+		PriceData: types.PriceData{
+			ModelRatio:      1,
+			CompletionRatio: 1,
+			GroupRatioInfo:  types.GroupRatioInfo{GroupRatio: 1},
+		},
+		StartTime: time.Now(),
+	}
+
+	PostTextConsumeQuota(ctx, relayInfo, nil, nil)
+
+	channel, err := model.GetChannelById(22, true)
+	require.NoError(t, err)
+	require.NotNil(t, channel.Priority)
+	require.Equal(t, int64(5), *channel.Priority)
+}
+
+func setupTextQuotaPriorityTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+
+	originalDB := model.DB
+	originalLogDB := model.LOG_DB
+	originalUsingSQLite := common.UsingSQLite
+	originalUsingMySQL := common.UsingMySQL
+	originalUsingPostgreSQL := common.UsingPostgreSQL
+	originalRedisEnabled := common.RedisEnabled
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	originalLogConsumeEnabled := common.LogConsumeEnabled
+	originalErrorLogEnabled := constant.ErrorLogEnabled
+
+	common.UsingSQLite = true
+	common.UsingMySQL = false
+	common.UsingPostgreSQL = false
+	common.RedisEnabled = false
+	common.MemoryCacheEnabled = true
+	common.LogConsumeEnabled = false
+	constant.ErrorLogEnabled = false
+
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	model.DB = db
+	model.LOG_DB = db
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Log{}))
+
+	t.Cleanup(func() {
+		model.DB = originalDB
+		model.LOG_DB = originalLogDB
+		common.UsingSQLite = originalUsingSQLite
+		common.UsingMySQL = originalUsingMySQL
+		common.UsingPostgreSQL = originalUsingPostgreSQL
+		common.RedisEnabled = originalRedisEnabled
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
+		common.LogConsumeEnabled = originalLogConsumeEnabled
+		constant.ErrorLogEnabled = originalErrorLogEnabled
+		sqlDB, err := db.DB()
+		if err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	return db
 }

@@ -20,6 +20,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+const failedChannelPriorityBase int64 = 1767196800
+
 type Channel struct {
 	Id                 int     `json:"id"`
 	Type               int     `json:"type" gorm:"default:0"`
@@ -570,6 +572,47 @@ func (channel *Channel) Update() error {
 	DB.Model(channel).First(channel, "id = ?", channel.Id)
 	err = channel.UpdateAbilities(nil)
 	return err
+}
+
+func DeprioritizeFailedChannel(channelId int) (bool, error) {
+	channel, err := GetChannelById(channelId, true)
+	if err != nil {
+		return false, err
+	}
+	if channel.GetPriority() > 0 {
+		return false, nil
+	}
+
+	newPriority := failedChannelPriorityBase - common.GetTimestamp()
+	if channel.GetPriority() == newPriority {
+		return false, nil
+	}
+
+	channel.Priority = common.GetPointer(newPriority)
+	tx := DB.Begin()
+	if tx.Error != nil {
+		return false, tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			panic(r)
+		}
+	}()
+
+	if err = tx.Model(channel).Select("priority").Update("priority", channel.Priority).Error; err != nil {
+		tx.Rollback()
+		return false, err
+	}
+	if err = channel.UpdateAbilities(tx); err != nil {
+		tx.Rollback()
+		return false, err
+	}
+	if err = tx.Commit().Error; err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func (channel *Channel) UpdateResponseTime(responseTime int64) {

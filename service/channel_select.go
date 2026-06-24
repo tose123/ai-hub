@@ -12,12 +12,15 @@ import (
 )
 
 type RetryParam struct {
-	Ctx          *gin.Context
-	TokenGroup   string
-	ModelName    string
-	RequestPath  string
-	Retry        *int
-	resetNextTry bool
+	Ctx                   *gin.Context
+	TokenGroup            string
+	ModelName             string
+	RequestPath           string
+	Retry                 *int
+	ExcludedChannelIDs    map[int]struct{}
+	currentAutoGroup      string
+	currentAutoGroupLimit int
+	resetNextTry          bool
 }
 
 func (p *RetryParam) GetRetry() int {
@@ -48,12 +51,10 @@ func (p *RetryParam) ResetRetryNextTry() {
 
 // CacheGetRandomSatisfiedChannel selects a channel for the given group/model.
 //
-// 普通分组直接按 retry 映射到优先级层级。auto 分组会按 token 可用的
-// autoGroups 顺序选择；每个子分组最多尝试
-// min(优先级层级数, RetryTimes+1) 次。开启跨组重试时，组内优先级耗尽后
-// 切到下一组，并把组内 retry 重置为 0；未开启时则在当前组耗尽后停止继续
-// 尝试后续分组。亲和性首发失败后的第一次兜底也从 autoGroups 的第一个分组、
-// 最高优先级重新开始。
+// 普通分组会过滤掉本请求已尝试的渠道，并从剩余候选中仅选择当前最高优先级层。
+// auto 分组会在当前分组仍有剩余候选时持续留在当前分组；只有当前分组耗尽后，
+// 才会根据 crossGroupRetry 决定是否切到下一组。亲和性首发失败后的第一次兜底
+// 也从 autoGroups 的第一个分组、最高优先级重新开始。
 func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, error) {
 	var channel *model.Channel
 	var err error
@@ -85,28 +86,106 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 		for i := startGroupIndex; i < len(autoGroups); i++ {
 			autoGroup := autoGroups[i]
 			selectGroup = autoGroup
-			// Calculate priorityRetry for current group
-			// 计算当前分组的 priorityRetry
-			priorityRetry := param.GetRetry()
-			// If moved to a new group, reset priorityRetry and update startRetryIndex
-			// 如果切换到新分组，重置 priorityRetry 并更新 startRetryIndex
-			if i > startGroupIndex {
-				priorityRetry = 0
+			if param.ExcludedChannelIDs == nil {
+				remainingCount, countErr := model.GetSatisfiedChannelCount(autoGroup, param.ModelName, param.RequestPath, nil)
+				if countErr != nil {
+					return nil, selectGroup, countErr
+				}
+				priorityRetry := param.GetRetry()
+				if i > startGroupIndex {
+					priorityRetry = 0
+				}
+				priorityCount, priorityErr := model.GetSatisfiedChannelPriorityCount(autoGroup, param.ModelName, param.RequestPath, nil)
+				if priorityErr != nil {
+					return nil, selectGroup, priorityErr
+				}
+				groupRetryLimit := getAutoGroupRetryLimit(priorityCount)
+				if groupRetryLimit == 0 {
+					logger.LogDebug(param.Ctx, "No priority in group %s for model %s, trying next group", autoGroup, param.ModelName)
+					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
+					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
+					param.SetRetry(0)
+					continue
+				}
+				if priorityRetry >= groupRetryLimit {
+					logger.LogDebug(param.Ctx, "Auto group %s priority retries exhausted (priorityRetry=%d >= limit=%d)", autoGroup, priorityRetry, groupRetryLimit)
+					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
+					if crossGroupRetry {
+						logger.LogDebug(param.Ctx, "Trying next group after exhausting auto group %s", autoGroup)
+						common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
+						param.SetRetry(0)
+						continue
+					}
+					return nil, selectGroup, nil
+				}
+				logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
+
+				channel, err = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath, nil)
+				if err != nil {
+					return nil, selectGroup, err
+				}
+				if channel == nil {
+					logger.LogDebug(param.Ctx, "No available channel in group %s for model %s at priorityRetry %d, trying next group", autoGroup, param.ModelName, priorityRetry)
+					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
+					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
+					param.SetRetry(0)
+					continue
+				}
+				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroup, autoGroup)
+				param.currentAutoGroup = autoGroup
+				param.currentAutoGroupLimit = getAutoGroupRetryLimit(remainingCount)
+				logger.LogDebug(param.Ctx, "Auto selected group: %s", autoGroup)
+
+				if crossGroupRetry && priorityRetry >= groupRetryLimit-1 {
+					logger.LogDebug(param.Ctx, "Current group %s priority retries exhausted (priorityRetry=%d >= limit=%d), preparing switch to next group for next retry", autoGroup, priorityRetry, groupRetryLimit)
+					param.currentAutoGroup = ""
+					param.currentAutoGroupLimit = 0
+					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
+					param.SetRetry(0)
+					param.ResetRetryNextTry()
+				} else {
+					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i)
+				}
+				break
 			}
-			priorityCount, priorityErr := model.GetSatisfiedChannelPriorityCount(autoGroup, param.ModelName)
+
+			groupRetry := param.GetRetry()
+			if i > startGroupIndex {
+				groupRetry = 0
+			}
+
+			remainingCount, countErr := model.GetSatisfiedChannelCount(autoGroup, param.ModelName, param.RequestPath, param.ExcludedChannelIDs)
+			if countErr != nil {
+				return nil, selectGroup, countErr
+			}
+			priorityCount, priorityErr := model.GetSatisfiedChannelPriorityCount(autoGroup, param.ModelName, param.RequestPath, param.ExcludedChannelIDs)
 			if priorityErr != nil {
 				return nil, selectGroup, priorityErr
 			}
-			groupRetryLimit := getAutoGroupRetryLimit(priorityCount)
-			if groupRetryLimit == 0 {
-				logger.LogDebug(param.Ctx, "No priority in group %s for model %s, trying next group", autoGroup, param.ModelName)
+
+			if remainingCount == 0 {
+				logger.LogDebug(param.Ctx, "No remaining channel in group %s for model %s, trying next group", autoGroup, param.ModelName)
+				param.currentAutoGroup = ""
+				param.currentAutoGroupLimit = 0
 				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
 				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
-				param.SetRetry(0)
+				if crossGroupRetry {
+					param.SetRetry(0)
+				} else if i == startGroupIndex {
+					return nil, selectGroup, nil
+				}
 				continue
 			}
-			if priorityRetry >= groupRetryLimit {
-				logger.LogDebug(param.Ctx, "Auto group %s priority retries exhausted (priorityRetry=%d >= limit=%d)", autoGroup, priorityRetry, groupRetryLimit)
+
+			if param.currentAutoGroup != autoGroup || param.currentAutoGroupLimit <= 0 {
+				param.currentAutoGroup = autoGroup
+				param.currentAutoGroupLimit = getAutoGroupRetryLimit(remainingCount)
+			}
+			groupRetryLimit := param.currentAutoGroupLimit
+			if groupRetry >= groupRetryLimit {
+				logger.LogDebug(param.Ctx, "Auto group %s retries exhausted (groupRetry=%d >= limit=%d, remainingPriorityCount=%d)", autoGroup, groupRetry, groupRetryLimit, priorityCount)
+				param.currentAutoGroup = ""
+				param.currentAutoGroupLimit = 0
 				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
 				if crossGroupRetry {
 					logger.LogDebug(param.Ctx, "Trying next group after exhausting auto group %s", autoGroup)
@@ -116,19 +195,23 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 				}
 				return nil, selectGroup, nil
 			}
-			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
+			logger.LogDebug(param.Ctx, "Auto selecting group: %s, groupRetry: %d, remainingPriorityCount: %d", autoGroup, groupRetry, priorityCount)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath)
+			channel, err = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, groupRetry, param.RequestPath, param.ExcludedChannelIDs)
+			if err != nil {
+				return nil, selectGroup, err
+			}
 			if channel == nil {
-				// Current group has no available channel for this model, try next group
-				// 当前分组没有该模型的可用渠道，尝试下一个分组
-				logger.LogDebug(param.Ctx, "No available channel in group %s for model %s at priorityRetry %d, trying next group", autoGroup, param.ModelName, priorityRetry)
-				// 重置状态以尝试下一个分组
+				logger.LogDebug(param.Ctx, "No available channel in group %s for model %s after filtering, trying next group", autoGroup, param.ModelName)
+				param.currentAutoGroup = ""
+				param.currentAutoGroupLimit = 0
 				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
 				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
-				// Reset retry counter so outer loop can continue for next group
-				// 重置重试计数器，以便外层循环可以为下一个分组继续
-				param.SetRetry(0)
+				if crossGroupRetry {
+					param.SetRetry(0)
+				} else if i == startGroupIndex {
+					return nil, selectGroup, nil
+				}
 				continue
 			}
 			common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroup, autoGroup)
@@ -136,26 +219,20 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 
 			// Prepare state for next retry
 			// 为下一次重试准备状态
-			if crossGroupRetry && priorityRetry >= groupRetryLimit-1 {
-				// Current group has exhausted all retries, prepare to switch to next group
-				// This request still uses current group, but next retry will use next group
-				// 当前分组已用完所有重试次数，准备切换到下一个分组
-				// 本次请求仍使用当前分组，但下次重试将使用下一个分组
-				logger.LogDebug(param.Ctx, "Current group %s priority retries exhausted (priorityRetry=%d >= limit=%d), preparing switch to next group for next retry", autoGroup, priorityRetry, groupRetryLimit)
+			if crossGroupRetry && groupRetry >= groupRetryLimit-1 {
+				logger.LogDebug(param.Ctx, "Current group %s retries exhausted (groupRetry=%d >= limit=%d), preparing switch to next group for next retry", autoGroup, groupRetry, groupRetryLimit)
+				param.currentAutoGroup = ""
+				param.currentAutoGroupLimit = 0
 				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
-				// Reset retry counter so outer loop can continue for next group
-				// 重置重试计数器，以便外层循环可以为下一个分组继续
 				param.SetRetry(0)
 				param.ResetRetryNextTry()
 			} else {
-				// Stay in current group, save current state
-				// 保持在当前分组，保存当前状态
 				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i)
 			}
 			break
 		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath)
+		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath, param.ExcludedChannelIDs)
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}
