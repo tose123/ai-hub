@@ -188,6 +188,10 @@ func GetContextKeyInt(c *gin.Context, key constant.ContextKey) int {
 	return c.GetInt(string(key))
 }
 
+func GetContextKeyInt64(c *gin.Context, key constant.ContextKey) int64 {
+	return c.GetInt64(string(key))
+}
+
 func GetContextKeyBool(c *gin.Context, key constant.ContextKey) bool {
 	return c.GetBool(string(key))
 }
@@ -212,6 +216,20 @@ func GetContextKeyType[T any](c *gin.Context, key constant.ContextKey) (T, bool)
 	}
 	var t T
 	return t, false
+}
+
+func HasClientVisibleResponse(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	if GetContextKeyBool(c, constant.ContextKeyResponsePayloadWritten) {
+		return true
+	}
+	if c.Writer == nil || !c.Writer.Written() {
+		return false
+	}
+	controlBytes := GetContextKeyInt64(c, constant.ContextKeyResponseControlBytes)
+	return int64(c.Writer.Size()) > controlBytes
 }
 
 func ApiError(c *gin.Context, err error) {

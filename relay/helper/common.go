@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/types"
@@ -85,6 +86,7 @@ func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data st
 	if common.IsClientGone(c) {
 		return
 	}
+	markResponsePayloadWritten(c)
 	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
 	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s", data)})
 	_ = FlushWriter(c)
@@ -99,6 +101,7 @@ func StringData(c *gin.Context, str string) error {
 		return nil
 	}
 
+	markResponsePayloadWritten(c)
 	c.Render(-1, common.CustomEvent{Data: "data: " + str})
 	return FlushWriter(c)
 }
@@ -115,6 +118,8 @@ func PingData(c *gin.Context) error {
 	if _, err := c.Writer.Write([]byte(": PING\n\n")); err != nil {
 		return fmt.Errorf("write ping data failed: %w", err)
 	}
+	controlBytes := common.GetContextKeyInt64(c, constant.ContextKeyResponseControlBytes)
+	common.SetContextKey(c, constant.ContextKeyResponseControlBytes, controlBytes+8)
 	return FlushWriter(c)
 }
 
@@ -131,6 +136,13 @@ func ObjectData(c *gin.Context, object interface{}) error {
 
 func Done(c *gin.Context) {
 	_ = StringData(c, "[DONE]")
+}
+
+func markResponsePayloadWritten(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	common.SetContextKey(c, constant.ContextKeyResponsePayloadWritten, true)
 }
 
 func WssString(c *gin.Context, ws *websocket.Conn, str string) error {

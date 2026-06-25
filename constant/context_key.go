@@ -59,6 +59,8 @@ const (
 
 	ContextKeyLocalCountTokens  ContextKey = "local_count_tokens"
 	ContextKeyRerankSearchUnits ContextKey = "rerank_search_units"
+	ContextKeyResponsePayloadWritten ContextKey = "response_payload_written"
+	ContextKeyResponseControlBytes   ContextKey = "response_control_bytes"
 
 	ContextKeySystemPromptOverride ContextKey = "system_prompt_override"
 

@@ -113,6 +113,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var createAt int64 = 0
 	var systemFingerprint string
 	var containStreamUsage bool
+	var sawExplicitStreamUsage bool
 	var responseTextBuilder strings.Builder
 	var toolCount int
 	var usage = &dto.Usage{}
@@ -167,19 +168,33 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		&containStreamUsage, info, &shouldSendLastResp); err != nil {
 		logger.LogError(c, fmt.Sprintf("error handling last response: %s, lastStreamData: [%s]", err.Error(), lastStreamData))
 	}
-
-	if info.RelayFormat == types.RelayFormatOpenAI {
-		if shouldSendLastResp {
-			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
-		}
+	var lastStreamResponse dto.ChatCompletionsStreamResponse
+	if err := common.Unmarshal(common.StringToByteSlice(lastStreamData), &lastStreamResponse); err == nil && lastStreamResponse.Usage != nil {
+		sawExplicitStreamUsage = true
 	}
 
-	if !containStreamUsage {
+	if !containStreamUsage && !sawExplicitStreamUsage {
 		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		usage.CompletionTokens += toolCount * 7
 	}
 
 	applyUsagePostProcessing(info, usage, common.StringToByteSlice(lastStreamData))
+	normalizeTextUsage(usage)
+
+	if !hasValidTextUsage(usage) {
+		apiErr := newMissingTextUsageRetryableError()
+		if !common.HasClientVisibleResponse(c) {
+			return nil, apiErr
+		}
+		if err := writeChatStreamTerminalError(c, apiErr); err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		}
+		return nil, apiErr
+	}
+
+	if info.RelayFormat == types.RelayFormatOpenAI && shouldSendLastResp {
+		_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
+	}
 
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
@@ -250,6 +265,10 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 	applyUsagePostProcessing(info, &simpleResponse.Usage, responseBody)
+	normalizeTextUsage(&simpleResponse.Usage)
+	if !hasValidTextUsage(&simpleResponse.Usage) {
+		return nil, newMissingTextUsageRetryableError()
+	}
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:

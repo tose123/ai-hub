@@ -46,6 +46,31 @@ func TestShouldRetryRegular500StillRetries(t *testing.T) {
 	require.True(t, shouldRetry(ctx, apiErr, 1))
 }
 
+func TestShouldRetryDoesNotRetryAfterResponseWritten(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	ctx.Status(http.StatusOK)
+	_, _ = ctx.Writer.Write([]byte("partial"))
+
+	apiErr := types.NewErrorWithStatusCode(errors.New("upstream error"), types.ErrorCodeBadResponse, http.StatusBadGateway)
+
+	require.False(t, shouldRetry(ctx, apiErr, 1))
+}
+
+func TestShouldRetryStillRetriesAfterHeaderOnlyWrite(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	ctx.Status(http.StatusOK)
+
+	apiErr := types.NewErrorWithStatusCode(errors.New("upstream error"), types.ErrorCodeBadResponse, http.StatusBadGateway)
+
+	require.True(t, shouldRetry(ctx, apiErr, 1))
+}
+
 func TestRelayFailurePriorityUpdateSkipsClientCanceled(t *testing.T) {
 	db := setupRelayPriorityControllerTestDB(t)
 	priority := int64(0)

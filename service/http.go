@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 
 	"github.com/gin-gonic/gin"
@@ -74,6 +75,8 @@ func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 	_, err := io.Copy(c.Writer, body)
 	if err != nil {
 		logger.LogError(c, fmt.Sprintf("failed to copy response body: %s", err.Error()))
+	} else {
+		common.SetContextKey(c, constant.ContextKeyResponsePayloadWritten, true)
 	}
 	c.Writer.Flush()
 }

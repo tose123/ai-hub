@@ -103,9 +103,6 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		c.Set("image_generation_call_size", responsesResponse.GetSize())
 	}
 
-	// 写入新的 response body
-	service.IOCopyBytesGracefully(c, resp, responseBody)
-
 	// compute usage
 	usage := dto.Usage{}
 	if responsesResponse.Usage != nil {
@@ -116,6 +113,13 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			usage.PromptTokensDetails.CachedTokens = responsesResponse.Usage.InputTokensDetails.CachedTokens
 		}
 	}
+	normalizeTextUsage(&usage)
+	if !hasValidTextUsage(&usage) {
+		return nil, newMissingTextUsageRetryableError()
+	}
+
+	// 写入新的 response body
+	service.IOCopyBytesGracefully(c, resp, responseBody)
 	if info == nil || info.ResponsesUsageInfo == nil || info.ResponsesUsageInfo.BuiltInTools == nil {
 		return &usage, nil
 	}
@@ -146,6 +150,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	var chatResponseID string
 	var chatCreatedAt int64
 	var chatModel string
+	var finalCompletedEvent *dto.ResponsesStreamResponse
+	var sawExplicitUsage bool
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -180,15 +186,17 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Error(err)
 			return
 		}
-		sendResponsesStreamData(c, streamResponse, data)
 		switch streamResponse.Type {
-		case "response.completed":
-			responsesCompletedSeen = true
-			if streamResponse.Response != nil {
-				if streamResponse.Response.Usage != nil {
-					if streamResponse.Response.Usage.InputTokens != 0 {
-						usage.PromptTokens = streamResponse.Response.Usage.InputTokens
-					}
+			case "response.completed":
+				responsesCompletedSeen = true
+				streamCopy := streamResponse
+				finalCompletedEvent = &streamCopy
+				if streamResponse.Response != nil {
+					if streamResponse.Response.Usage != nil {
+						sawExplicitUsage = true
+						if streamResponse.Response.Usage.InputTokens != 0 {
+							usage.PromptTokens = streamResponse.Response.Usage.InputTokens
+						}
 					if streamResponse.Response.Usage.OutputTokens != 0 {
 						usage.CompletionTokens = streamResponse.Response.Usage.OutputTokens
 					}
@@ -205,6 +213,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 					c.Set("image_generation_call_size", streamResponse.Response.GetSize())
 				}
 			}
+			return
 		case "response.output_text.delta":
 			// 处理输出文本
 			responseTextBuilder.WriteString(streamResponse.Delta)
@@ -234,9 +243,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				}
 			}
 		}
+		sendResponsesStreamData(c, streamResponse, data)
 	})
 
-	if usage.CompletionTokens == 0 {
+	if usage.CompletionTokens == 0 && !sawExplicitUsage {
 		// 计算输出文本的 token 数量
 		tempStr := responseTextBuilder.String()
 		if len(tempStr) > 0 {
@@ -251,6 +261,44 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	normalizeTextUsage(usage)
+	if !hasValidTextUsage(usage) {
+		apiErr := newMissingTextUsageRetryableError()
+		if !common.HasClientVisibleResponse(c) {
+			return nil, apiErr
+		}
+		if chatCompatUsed {
+			if chatResponseID == "" {
+				chatResponseID = helper.GetResponseID(c)
+			}
+			if chatCreatedAt == 0 && !info.StartTime.IsZero() {
+				chatCreatedAt = info.StartTime.Unix()
+			}
+			if chatModel == "" {
+				chatModel = info.UpstreamModelName
+			}
+			if err := writeResponsesFailedEvent(c, chatResponseID, chatCreatedAt, chatModel, apiErr); err != nil {
+				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			}
+		} else {
+			responseID := ""
+			createdAt := info.StartTime.Unix()
+			model := info.UpstreamModelName
+			if finalCompletedEvent != nil && finalCompletedEvent.Response != nil {
+				responseID = finalCompletedEvent.Response.ID
+				if finalCompletedEvent.Response.CreatedAt != 0 {
+					createdAt = int64(finalCompletedEvent.Response.CreatedAt)
+				}
+				if finalCompletedEvent.Response.Model != "" {
+					model = finalCompletedEvent.Response.Model
+				}
+			}
+			if err := writeResponsesFailedEvent(c, responseID, createdAt, model, apiErr); err != nil {
+				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			}
+		}
+		return nil, apiErr
+	}
 
 	if chatCompatUsed && !responsesCompletedSeen {
 		if chatResponseID == "" {
@@ -265,9 +313,19 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		if err := sendResponsesCompatCompletedEvent(c, chatResponseID, chatCreatedAt, chatModel, responseTextBuilder.String(), usage); err != nil {
 			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 		}
+	} else if finalCompletedEvent != nil {
+		sendResponsesStreamData(c, *finalCompletedEvent, dataFromResponsesEvent(*finalCompletedEvent))
 	}
 
 	return usage, nil
+}
+
+func dataFromResponsesEvent(event dto.ResponsesStreamResponse) string {
+	data, err := common.Marshal(event)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func handleChatCompletionChunkInResponsesStream(

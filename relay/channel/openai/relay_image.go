@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -268,6 +269,7 @@ func writeOpenaiImageStreamPayload(c *gin.Context, eventName string, payload any
 	if err != nil {
 		return err
 	}
+	common.SetContextKey(c, constant.ContextKeyResponsePayloadWritten, true)
 	if eventName != "" {
 		if _, err := fmt.Fprintf(c.Writer, "event: %s\n", eventName); err != nil {
 			return err
@@ -283,5 +285,7 @@ func writeOpenaiImageStreamDone(c *gin.Context) error {
 	if _, err := fmt.Fprint(c.Writer, "data: [DONE]\n\n"); err != nil {
 		return err
 	}
+	controlBytes := common.GetContextKeyInt64(c, constant.ContextKeyResponseControlBytes)
+	common.SetContextKey(c, constant.ContextKeyResponseControlBytes, controlBytes+14)
 	return helper.FlushWriter(c)
 }
