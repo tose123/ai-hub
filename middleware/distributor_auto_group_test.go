@@ -128,3 +128,18 @@ func TestDistributorAffinityBranchUsesTokenAwareAutoGroups(t *testing.T) {
 	require.Equal(t, "vip", common.GetContextKeyString(ctx, constant.ContextKeyAutoGroup))
 	require.Equal(t, 300, common.GetContextKeyInt(ctx, constant.ContextKeyChannelId))
 }
+
+func TestDistributorPlaygroundAutoGroupEnablesCrossGroupRetry(t *testing.T) {
+	db := setupDistributorAutoGroupTestDB(t)
+	withDistributorAutoGroups(t, []string{"default", "vip"})
+	seedDistributorAutoGroupData(t, db)
+	ctx, rec := buildDistributorContext(nil)
+	body := strings.NewReader(`{"model":"runtime-model","group":"auto"}`)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/pg/chat/completions", body)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	Distribute()(ctx)
+
+	require.Less(t, rec.Code, http.StatusBadRequest)
+	require.True(t, common.GetContextKeyBool(ctx, constant.ContextKeyTokenCrossGroupRetry))
+}

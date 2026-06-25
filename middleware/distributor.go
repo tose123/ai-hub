@@ -104,6 +104,9 @@ func Distribute() func(c *gin.Context) {
 						}
 						usingGroup = playgroundRequest.Group
 						common.SetContextKey(c, constant.ContextKeyUsingGroup, usingGroup)
+						if playgroundRequest.Group == "auto" {
+							common.SetContextKey(c, constant.ContextKeyTokenCrossGroupRetry, true)
+						}
 					}
 				}
 
