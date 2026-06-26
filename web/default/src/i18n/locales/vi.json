@@ -2482,6 +2482,7 @@
     "model": "mô hình",
     "Model": "Mô hình",
     "Model {{model}}": "Mô hình {{model}}",
+    "{{target}} test unsupported": "Kiểm thử {{target}} không được hỗ trợ",
     "Model Access": "Truy cập mô hình",
     "Model Analytics": "Phân tích mô hình",
     "Model Analytics Defaults": "Mặc định phân tích mô hình",

@@ -104,7 +104,7 @@ type ModelRow = {
   model: string
 }
 
-type TestStatus = 'idle' | 'testing' | 'success' | 'error'
+type TestStatus = 'idle' | 'testing' | 'success' | 'error' | 'unsupported'
 
 type TestResult = {
   status: TestStatus
@@ -119,6 +119,7 @@ type BatchProgress = {
   completed: number
   success: number
   failed: number
+  skipped: number
 }
 
 type ChannelTestCachePatch = {
@@ -517,10 +518,10 @@ function ChannelTestDialogContent({
             stream: effectiveStreamTest || undefined,
             silent,
           },
-          (success, responseTime, error, errorCode) => {
+          (status, responseTime, error, errorCode) => {
             const completedAt = Date.now()
             finalResult = {
-              status: success ? 'success' : 'error',
+              status,
               responseTime,
               completedAt,
               error,
@@ -582,6 +583,7 @@ function ChannelTestDialogContent({
         completed: 0,
         success: 0,
         failed: 0,
+        skipped: 0,
       })
 
       let resultPatch: ChannelTestCachePatch | undefined
@@ -589,6 +591,7 @@ function ChannelTestDialogContent({
       let completedCount = 0
       let successCount = 0
       let failedCount = 0
+      let skippedCount = 0
 
       try {
         const createFallbackResult = (error?: unknown): TestResult => ({
@@ -602,14 +605,18 @@ function ChannelTestDialogContent({
           completedCount += 1
           if (result.status === 'success') {
             successCount += 1
+          } else if (result.status === 'unsupported') {
+            skippedCount += 1
+          } else {
+            failedCount += 1
           }
-          failedCount = completedCount - successCount
 
           setBatchProgress({
             total: uniqueModels.length,
             completed: completedCount,
             success: successCount,
             failed: failedCount,
+            skipped: skippedCount,
           })
         }
 
@@ -1104,7 +1111,7 @@ function ChannelTestDialogContent({
         title={t('Delete failed models')}
         desc={t(
           'This removes {{count}} failed models from this channel. This action cannot be undone.',
-          { count: failedModels.length }
+              { count: failedModels.length }
         )}
         destructive
         isLoading={isDeletingFailed}
@@ -1131,10 +1138,15 @@ function BatchProgressSummary({
   isStopping: boolean
 }) {
   const { t } = useTranslation()
+  const effectiveTotal = Math.max(0, progress.total - progress.skipped)
+  const effectiveCompleted = Math.max(0, progress.completed - progress.skipped)
   const progressValue =
-    progress.total > 0
-      ? Math.min(100, Math.round((progress.completed / progress.total) * 100))
-      : 0
+    effectiveTotal > 0
+      ? Math.min(
+          100,
+          Math.round((effectiveCompleted / effectiveTotal) * 100)
+        )
+      : 100
 
   return (
     <div className='bg-muted/30 flex flex-col gap-2 rounded-md border p-3'>
@@ -1146,8 +1158,8 @@ function BatchProgressSummary({
         </p>
         <p className='text-muted-foreground text-xs tabular-nums'>
           {t('{{completed}}/{{total}} completed', {
-            completed: progress.completed,
-            total: progress.total,
+            completed: effectiveCompleted,
+            total: effectiveTotal,
           })}
         </p>
       </div>
@@ -1192,6 +1204,19 @@ function TestStatusCell({
     return (
       <div className='flex min-w-0 flex-col gap-1 text-xs'>
         <StatusBadge label={t('Success')} variant='success' copyable={false} />
+        {typeof result.responseTime === 'number' && (
+          <span className='text-muted-foreground truncate'>
+            {formatResponseTime(result.responseTime, t)}
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  if (result.status === 'unsupported') {
+    return (
+      <div className='flex min-w-0 flex-col gap-1 text-xs'>
+        <StatusBadge label={t('Not available')} variant='warning' copyable={false} />
         {typeof result.responseTime === 'number' && (
           <span className='text-muted-foreground truncate'>
             {formatResponseTime(result.responseTime, t)}

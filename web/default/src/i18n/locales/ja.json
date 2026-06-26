@@ -2482,6 +2482,7 @@
     "model": "モデル",
     "Model": "モデル",
     "Model {{model}}": "モデル {{model}}",
+    "{{target}} test unsupported": "{{target}} テストは未対応です",
     "Model Access": "モデルアクセス",
     "Model Analytics": "モデル分析",
     "Model Analytics Defaults": "モデル分析のデフォルト設定",

@@ -2482,6 +2482,7 @@
     "model": "模型",
     "Model": "模型",
     "Model {{model}}": "模型 {{model}}",
+    "{{target}} test unsupported": "{{target}} 测试不支持",
     "Model Access": "模型访问",
     "Model Analytics": "模型数据分析",
     "Model Analytics Defaults": "模型分析默认设置",

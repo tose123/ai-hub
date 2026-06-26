@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
+	"github.com/QuantumNous/new-api/types"
 )
 
 var hotBuckets sync.Map
@@ -26,6 +27,9 @@ func Init() {
 
 func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens int64) {
 	if info == nil {
+		return
+	}
+	if info.LastError != nil && types.IsNotImplementedError(info.LastError) {
 		return
 	}
 	now := time.Now()

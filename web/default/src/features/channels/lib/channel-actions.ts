@@ -106,6 +106,23 @@ function getChannelTestLabel(options?: {
   return i18next.t('Channel')
 }
 
+function isNotImplementedChannelTest(
+  errorCode?: string,
+  message?: string,
+  status?: number
+): boolean {
+  const normalizedCode = errorCode?.trim().toLowerCase()
+  if (normalizedCode === 'api_not_implemented') return true
+
+  if (status !== undefined && status !== 404) return false
+
+  const normalizedMessage = message?.trim().toLowerCase() ?? ''
+  return (
+    normalizedMessage.includes('not implemented') ||
+    normalizedMessage.includes('not_implemented')
+  )
+}
+
 // ============================================================================
 // Single Channel Actions
 // ============================================================================
@@ -273,7 +290,7 @@ export async function handleTestChannel(
     silent?: boolean
   },
   onTestComplete?: (
-    success: boolean,
+    status: 'success' | 'error' | 'unsupported',
     responseTime?: number,
     error?: string,
     errorCode?: string
@@ -308,29 +325,62 @@ export async function handleTestChannel(
             : undefined
         )
       }
-      onTestComplete?.(true, responseTime)
+      onTestComplete?.('success', responseTime)
     } else {
       const errorMsg = response.message || i18next.t(ERROR_MESSAGES.TEST_FAILED)
+      const isUnsupported = isNotImplementedChannelTest(
+        response.error_code,
+        errorMsg
+      )
       if (!options?.silent) {
-        toast.error(i18next.t('{{target}} test failed', { target }), {
-          description: response.error_code
-            ? `${errorMsg} (${response.error_code})`
-            : errorMsg,
-        })
+        if (isUnsupported) {
+          toast.info(i18next.t('{{target}} test unsupported', { target }), {
+            description: response.error_code
+              ? `${errorMsg} (${response.error_code})`
+              : errorMsg,
+          })
+        } else {
+          toast.error(i18next.t('{{target}} test failed', { target }), {
+            description: response.error_code
+              ? `${errorMsg} (${response.error_code})`
+              : errorMsg,
+          })
+        }
       }
-      onTestComplete?.(false, responseTime, errorMsg, response.error_code)
+      onTestComplete?.(
+        isUnsupported ? 'unsupported' : 'error',
+        responseTime,
+        errorMsg,
+        response.error_code
+      )
     }
   } catch (_error: unknown) {
-    const err = _error as { response?: { data?: { message?: string } } }
+    const err = _error as {
+      response?: {
+        status?: number
+        data?: { message?: string; error_code?: string }
+      }
+    }
     const errorMsg =
       err?.response?.data?.message || i18next.t(ERROR_MESSAGES.TEST_FAILED)
     const target = getChannelTestLabel(options)
+    const isUnsupported = isNotImplementedChannelTest(
+      err?.response?.data?.error_code,
+      errorMsg,
+      err?.response?.status
+    )
     if (!options?.silent) {
-      toast.error(i18next.t('{{target}} test failed', { target }), {
-        description: errorMsg,
-      })
+      if (isUnsupported) {
+        toast.info(i18next.t('{{target}} test unsupported', { target }), {
+          description: errorMsg,
+        })
+      } else {
+        toast.error(i18next.t('{{target}} test failed', { target }), {
+          description: errorMsg,
+        })
+      }
     }
-    onTestComplete?.(false, undefined, errorMsg)
+    onTestComplete?.(isUnsupported ? 'unsupported' : 'error', undefined, errorMsg)
   }
 }
 

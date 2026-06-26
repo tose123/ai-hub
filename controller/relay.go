@@ -265,6 +265,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError = types.NewClientCanceledError(ctxErr)
 		}
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
+		newAPIError = types.NormalizeNotImplementedError(newAPIError)
 		relayInfo.LastError = newAPIError
 
 		if types.IsClientCanceledError(newAPIError) {
@@ -292,7 +293,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
 		logger.LogInfo(c, retryLogStr)
 	}
-	if newAPIError != nil && !types.IsClientCanceledError(newAPIError) {
+	if newAPIError != nil && !types.IsClientCanceledError(newAPIError) && !types.IsNotImplementedError(newAPIError) {
 		gopool.Go(func() {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
 		})
@@ -544,9 +545,9 @@ func RelayNotImplemented(c *gin.Context) {
 		Message: "API not implemented",
 		Type:    "new_api_error",
 		Param:   "",
-		Code:    "api_not_implemented",
+		Code:    types.ErrorCodeAPINotImplemented,
 	}
-	c.JSON(http.StatusNotImplemented, gin.H{
+	c.JSON(http.StatusNotFound, gin.H{
 		"error": err,
 	})
 }

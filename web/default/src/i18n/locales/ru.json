@@ -2482,6 +2482,7 @@
     "model": "модель",
     "Model": "Модель",
     "Model {{model}}": "Модель {{model}}",
+    "{{target}} test unsupported": "Тест {{target}} не поддерживается",
     "Model Access": "Доступ к моделям",
     "Model Analytics": "Аналитика моделей",
     "Model Analytics Defaults": "Настройки аналитики моделей по умолчанию",

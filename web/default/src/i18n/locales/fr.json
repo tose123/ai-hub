@@ -2482,6 +2482,7 @@
     "model": "modèle",
     "Model": "Modèle",
     "Model {{model}}": "Modèle {{model}}",
+    "{{target}} test unsupported": "Test {{target}} non pris en charge",
     "Model Access": "Accès au modèle",
     "Model Analytics": "Analyse des modèles",
     "Model Analytics Defaults": "Paramètres par défaut de l’analyse des modèles",

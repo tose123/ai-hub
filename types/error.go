@@ -53,6 +53,7 @@ const (
 	ErrorCodeDoRequestFailed    ErrorCode = "do_request_failed"
 	ErrorCodeGetChannelFailed   ErrorCode = "get_channel_failed"
 	ErrorCodeGenRelayInfoFailed ErrorCode = "gen_relay_info_failed"
+	ErrorCodeAPINotImplemented  ErrorCode = "api_not_implemented"
 
 	// channel error
 	ErrorCodeChannelNoAvailableKey        ErrorCode = "channel:no_available_key"
@@ -245,6 +246,45 @@ func (e *NewAPIError) ToClaudeError() ClaudeError {
 
 type NewAPIErrorOptions func(*NewAPIError)
 
+func isNotImplementedMessage(text string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	return strings.Contains(text, "not implemented") || strings.Contains(text, "not_implemented")
+}
+
+func IsNotImplementedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *NewAPIError
+	if errors.As(err, &apiErr) {
+		if apiErr.errorCode == ErrorCodeAPINotImplemented {
+			return true
+		}
+		if apiErr.StatusCode == http.StatusNotImplemented || apiErr.StatusCode == http.StatusNotFound {
+			return isNotImplementedMessage(apiErr.Error())
+		}
+		return isNotImplementedMessage(apiErr.Error())
+	}
+	return isNotImplementedMessage(err.Error())
+}
+
+func NormalizeNotImplementedError(err *NewAPIError) *NewAPIError {
+	if err == nil || !IsNotImplementedError(err) {
+		return err
+	}
+	err.errorCode = ErrorCodeAPINotImplemented
+	err.StatusCode = http.StatusNotFound
+	err.skipRetry = true
+	if openAIError, ok := err.RelayError.(OpenAIError); ok {
+		openAIError.Code = ErrorCodeAPINotImplemented
+		if openAIError.Message == "" {
+			openAIError.Message = err.Error()
+		}
+		err.RelayError = openAIError
+	}
+	return err
+}
+
 func NewError(err error, errorCode ErrorCode, ops ...NewAPIErrorOptions) *NewAPIError {
 	var newErr *NewAPIError
 	// 保留深层传递的 new err
@@ -252,7 +292,7 @@ func NewError(err error, errorCode ErrorCode, ops ...NewAPIErrorOptions) *NewAPI
 		for _, op := range ops {
 			op(newErr)
 		}
-		return newErr
+		return NormalizeNotImplementedError(newErr)
 	}
 	e := &NewAPIError{
 		Err:        err,
@@ -264,7 +304,7 @@ func NewError(err error, errorCode ErrorCode, ops ...NewAPIErrorOptions) *NewAPI
 	for _, op := range ops {
 		op(e)
 	}
-	return e
+	return NormalizeNotImplementedError(e)
 }
 
 func NewOpenAIError(err error, errorCode ErrorCode, statusCode int, ops ...NewAPIErrorOptions) *NewAPIError {
@@ -282,7 +322,7 @@ func NewOpenAIError(err error, errorCode ErrorCode, statusCode int, ops ...NewAP
 		for _, op := range ops {
 			op(newErr)
 		}
-		return newErr
+		return NormalizeNotImplementedError(newErr)
 	}
 	openaiError := OpenAIError{
 		Message: err.Error(),
@@ -315,7 +355,7 @@ func NewErrorWithStatusCode(err error, errorCode ErrorCode, statusCode int, ops 
 		op(e)
 	}
 
-	return e
+	return NormalizeNotImplementedError(e)
 }
 
 func NewClientCanceledError(err error) *NewAPIError {
@@ -359,7 +399,7 @@ func WithOpenAIError(openAIError OpenAIError, statusCode int, ops ...NewAPIError
 	for _, op := range ops {
 		op(e)
 	}
-	return e
+	return NormalizeNotImplementedError(e)
 }
 
 func WithClaudeError(claudeError ClaudeError, statusCode int, ops ...NewAPIErrorOptions) *NewAPIError {
@@ -376,7 +416,7 @@ func WithClaudeError(claudeError ClaudeError, statusCode int, ops ...NewAPIError
 	for _, op := range ops {
 		op(e)
 	}
-	return e
+	return NormalizeNotImplementedError(e)
 }
 
 func IsChannelError(err *NewAPIError) bool {
