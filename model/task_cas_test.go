@@ -22,7 +22,7 @@ func TestMain(m *testing.M) {
 	DB = db
 	LOG_DB = db
 
-	common.UsingSQLite = true
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	common.RedisEnabled = false
 	common.BatchUpdateEnabled = false
 	common.LogConsumeEnabled = true
@@ -48,6 +48,9 @@ func TestMain(m *testing.M) {
 		&UserSubscription{},
 		&UserOAuthBinding{},
 		&PerfMetric{},
+		&SystemInstance{},
+		&SystemTask{},
+		&SystemTaskLock{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}

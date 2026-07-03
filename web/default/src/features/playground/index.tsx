@@ -16,29 +16,28 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
-import { getUserModels, getUserGroups } from './api'
-import { PlaygroundChat } from './components/playground-chat'
-import { PlaygroundInput } from './components/playground-input'
-import { usePlaygroundState, useChatHandler } from './hooks'
-import { createUserMessage, createLoadingAssistantMessage } from './lib'
-import type { Message as MessageType } from './types'
+import { PlaygroundChat } from './components/chat/playground-chat'
+import { PlaygroundInput } from './components/input/playground-input'
+import {
+  useChatHandler,
+  usePlaygroundConversation,
+  usePlaygroundOptions,
+  usePlaygroundState,
+} from './hooks'
 
 export function Playground() {
-  const { t } = useTranslation()
   const {
     config,
     parameterEnabled,
     messages,
+    isLoadingMessages,
     models,
     groups,
     updateMessages,
     setModels,
     setGroups,
     updateConfig,
+    clearMessages,
   } = usePlaygroundState()
 
   const { sendChat, stopGeneration, isGenerating } = useChatHandler({
@@ -47,43 +46,31 @@ export function Playground() {
     onMessageUpdate: updateMessages,
   })
 
-  // Edit dialog state
-  const [editingMessageKey, setEditingMessageKey] = useState<string | null>(
-    null
-  )
-
-  // Load models
-  const { data: modelsData, isLoading: isLoadingModels } = useQuery({
-    queryKey: ['playground-models'],
-    queryFn: async () => {
-      try {
-        return await getUserModels()
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : t('Failed to load playground models')
-        )
-        return []
-      }
-    },
+  const {
+    editingMessageKey,
+    handleSendMessage,
+    handleRegenerateMessage,
+    handleEditMessage,
+    handleEditOpenChange,
+    applyEdit,
+    handleDeleteMessage,
+  } = usePlaygroundConversation({
+    messages,
+    updateMessages,
+    sendChat,
   })
 
-  // Load groups
-  const { data: groupsData } = useQuery({
-    queryKey: ['playground-groups'],
-    queryFn: async () => {
-      try {
-        return await getUserGroups()
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : t('Failed to load playground groups')
-        )
-        return []
-      }
-    },
+  const handleClearMessages = () => {
+    handleEditOpenChange(false)
+    clearMessages()
+  }
+
+  const { isLoadingModels } = usePlaygroundOptions({
+    currentGroup: config.group,
+    currentModel: config.model,
+    setGroups,
+    setModels,
+    updateConfig,
   })
 
   // Update models when data changes
@@ -189,15 +176,16 @@ export function Playground() {
   }
 
   return (
-    <div className='relative flex size-full flex-col overflow-hidden'>
+    <div className='relative flex size-full min-h-0 flex-col overflow-hidden'>
       {/* Full-width scroll container: scrolling works even over side whitespace */}
-      <div className='flex flex-1 flex-col overflow-hidden'>
+      <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
         <PlaygroundChat
           messages={messages}
-          onCopyMessage={handleCopyMessage}
+          isLoadingMessages={isLoadingMessages}
           onRegenerateMessage={handleRegenerateMessage}
           onEditMessage={handleEditMessage}
           onDeleteMessage={handleDeleteMessage}
+          onSelectPrompt={handleSendMessage}
           isGenerating={isGenerating}
           editingKey={editingMessageKey}
           onCancelEdit={handleEditOpenChange}
@@ -217,9 +205,11 @@ export function Playground() {
           modelValue={config.model}
           models={models}
           onGroupChange={(value) => updateConfig('group', value)}
+          onClearMessages={handleClearMessages}
           onModelChange={(value) => updateConfig('model', value)}
           onStop={stopGeneration}
           onSubmit={handleSendMessage}
+          hasMessages={messages.length > 0}
         />
       </div>
     </div>

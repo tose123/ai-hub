@@ -16,8 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { z } from 'zod'
 import type { TFunction } from 'i18next'
+import { z } from 'zod'
+
 import { parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
 import { validateModelMappingJson } from '@/features/channels/lib/model-mapping-validation'
 import { DEFAULT_GROUP } from '../constants'

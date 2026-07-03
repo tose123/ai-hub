@@ -18,11 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useState } from 'react'
 import { Code, Table, Plus, Trash2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { cn } from '@/lib/utils'
+
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
 
 type JsonEditorProps = {
   value: string
@@ -287,7 +289,7 @@ export function JsonEditor({
               <div className='grid grid-cols-[1fr_1fr_auto] gap-2 text-sm font-medium'>
                 <div>{resolvedKeyLabel}</div>
                 <div>{resolvedValueLabel}</div>
-                <div className='w-10'></div>
+                <div className='w-10' />
               </div>
               {rows.map((row) => (
                 <div
