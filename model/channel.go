@@ -611,6 +611,9 @@ func DeprioritizeFailedChannel(channelId int) (bool, error) {
 	if err = tx.Commit().Error; err != nil {
 		return false, err
 	}
+	if common.MemoryCacheEnabled {
+		InitChannelCache()
+	}
 
 	return true, nil
 }

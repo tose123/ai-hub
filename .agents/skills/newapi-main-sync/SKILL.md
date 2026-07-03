@@ -76,7 +76,7 @@ When conflicts occur, first list them:
 
 ```bash
 git diff --name-only --diff-filter=U
-rg -n '<<<<<<<|=======|>>>>>>>' .
+rg -n '^(<<<<<<<|=======|>>>>>>>)' .
 ```
 
 Inspect each conflicted file and classify the conflict before editing.
@@ -146,11 +146,55 @@ Derive testing focus from the changed areas. Prefer concrete checks such as:
 
 ### 7. Verification
 
-Run focused checks based on the files changed by the merge:
+Run focused checks based on the files changed by the merge. Do not report the sync as complete until the required checks are clean or a concrete blocker is reported:
 
 - Go backend changes: `go test ./...`
-- Default frontend changes: from `web/default/`, use Bun, usually `bun run build`
+- Default frontend changes: from `web/default/`, use Bun. Always run both `bun run typecheck` and `bun run build`; a successful Rsbuild build is not sufficient because it can miss TypeScript duplicate declarations, missing imports, and invalid lazy route chunks. `bun run typecheck` must be clean, not merely grepped for known errors.
 - i18n-only frontend changes: from `web/default/`, run `bun run i18n:sync` when keys or locale files changed
+
+For any merge that changes `web/default/src/`, also run targeted lint on changed source files before reporting success:
+
+```bash
+{
+  git diff --name-only "$LOCAL_BEFORE"..HEAD -- 'web/default/src/**/*.ts' 'web/default/src/**/*.tsx'
+  git diff --name-only -- 'web/default/src/**/*.ts' 'web/default/src/**/*.tsx'
+} | sort -u | sed 's#^web/default/##' > /tmp/newapi-main-sync-src-files.txt
+test ! -s /tmp/newapi-main-sync-src-files.txt || (cd web/default && xargs bunx oxlint -c .oxlintrc.json < /tmp/newapi-main-sync-src-files.txt)
+```
+
+If targeted lint reports duplicate imports, missing imports/exports, unused imports/state, hook dependency issues, non-null assertions, nested ternaries, or impossible `ReactNode`/value types in changed files, fix them before reporting success. Do not dismiss these as style-only during a sync; they are common signs of partial conflict resolution.
+
+Also run a frontend merge-residue audit:
+
+```bash
+cd web/default
+bun run typecheck 2>&1 | tee /tmp/newapi-main-sync-typecheck.txt
+cd ../..
+rg -n '^(<<<<<<<|=======|>>>>>>>)' web/default/src
+rg -n "Identifier '.+' has already been declared|Duplicate identifier|Cannot find name|Cannot find module|has no exported member" /tmp/newapi-main-sync-typecheck.txt
+```
+
+If `bun run typecheck` reports duplicate identifiers, missing names/modules/exports, or impossible types in changed files, treat the sync as not complete even when `bun run build` passes. Inspect changed files for these merge-residue patterns:
+
+- duplicated import blocks or two versions of the same import list;
+- duplicated handlers after a hook or action refactor, such as old and new `handle*` functions coexisting;
+- old and new component implementations left in the same file after adopting an upstream rewrite;
+- stale query data, state, or helper names left after a refactor, such as `modelsData`/`groupsData` style variables no longer used by the active UI;
+- JSX blocks spliced into the wrong drawer/form/table section, especially model selectors, system prompts, filters, and action footers;
+- partial adoption of a component path rename, leaving missing imports, wrong named exports, or deleted components still referenced;
+- commented-out old UI paired with live unused state/imports.
+
+When a changed frontend file is a route, drawer, dialog, table column file, editor, filter toolbar, or playground-like large module, inspect it manually after automated checks. Confirm imports, hooks, state, handlers, and JSX order form one coherent implementation rather than a concatenation of local and upstream versions.
+
+When large frontend modules, route files, drawers, table columns, or lazily loaded pages changed, perform a dev-server smoke check after `typecheck` and `build` pass:
+
+```bash
+bun run dev
+curl -I http://127.0.0.1:3001/
+curl -s http://127.0.0.1:3001/static/js/index.js | rg '<changed-symbol-or-component>'
+```
+
+For touched routes or lazy chunks, open or request each affected route/module when feasible. In the built main bundle or affected chunk, confirm changed high-risk symbols are single definitions when the bug class is duplication-related, for example handlers, drawers, toolbars, editors, and column factories. Confirm the browser console or dev-server output does not contain syntax errors such as duplicate declarations, missing exports/imports, or failed chunk evaluation. Stop the dev server after the smoke check.
 
 If a check is too expensive or cannot run because dependencies or services are missing, say that plainly and include the next best manual check.
 

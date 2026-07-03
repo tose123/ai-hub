@@ -64,7 +64,12 @@ export function ComboboxInput({
     () => options.find((option) => option.value === value),
     [options, value]
   )
-  const displayValue = open ? searchValue : (selectedOption?.label ?? value)
+  const selectedLabel = selectedOption?.label
+  const displayValue = open
+    ? searchValue
+    : typeof selectedLabel === 'string' || typeof selectedLabel === 'number'
+      ? selectedLabel
+      : value
 
   const filteredOptions = React.useMemo(() => {
     if (!searchValue.trim()) return options

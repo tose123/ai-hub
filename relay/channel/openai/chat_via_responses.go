@@ -188,27 +188,11 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 
 	responseId := helper.GetResponseID(c)
 	createAt := time.Now().Unix()
-	model := info.UpstreamModelName
-
-	var (
-		usage                = &dto.Usage{}
-		outputText           strings.Builder
-		usageText            strings.Builder
-		sentStart            bool
-		sentStop             bool
-		sawToolCall          bool
-		sawExplicitFinalUsage bool
-		streamErr            *types.NewAPIError
-	)
-
-	toolCallIndexByID := make(map[string]int)
-	toolCallNameByID := make(map[string]string)
-	toolCallArgsByID := make(map[string]string)
-	toolCallNameSent := make(map[string]bool)
-	toolCallCanonicalIDByItemID := make(map[string]string)
-	hasSentReasoningSummary := false
-	needsReasoningSummarySeparator := false
-	//reasoningSummaryTextByKey := make(map[string]string)
+	state := relayconvert.NewResponsesToChatStreamState(info.UpstreamModelName, false)
+	state.ID = responseId
+	state.Created = createAt
+	streamErr := (*types.NewAPIError)(nil)
+	sawExplicitFinalUsage := false
 
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo == nil {
 		info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
@@ -250,175 +234,11 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			sr.Error(err)
 			return
 		}
+		if streamResp.Response != nil && streamResp.Response.Usage != nil {
+			sawExplicitFinalUsage = true
+		}
 
-		switch streamResp.Type {
-		case "response.created":
-			if streamResp.Response != nil {
-				if streamResp.Response.Model != "" {
-					model = streamResp.Response.Model
-				}
-				if streamResp.Response.CreatedAt != 0 {
-					createAt = int64(streamResp.Response.CreatedAt)
-				}
-			}
-
-		//case "response.reasoning_text.delta":
-		//if !sendReasoningDelta(streamResp.Delta) {
-		//	sr.Stop(streamErr)
-		//	return
-		//}
-
-		//case "response.reasoning_text.done":
-
-		case "response.reasoning_summary_text.delta":
-			if !sendReasoningSummaryDelta(streamResp.Delta) {
-				sr.Stop(streamErr)
-				return
-			}
-
-		case "response.reasoning_summary_text.done":
-			if hasSentReasoningSummary {
-				needsReasoningSummarySeparator = true
-			}
-
-		//case "response.reasoning_summary_part.added", "response.reasoning_summary_part.done":
-		//	key := responsesStreamIndexKey(strings.TrimSpace(streamResp.ItemID), streamResp.SummaryIndex)
-		//	if key == "" || streamResp.Part == nil {
-		//		break
-		//	}
-		//	// Only handle summary text parts, ignore other part types.
-		//	if streamResp.Part.Type != "" && streamResp.Part.Type != "summary_text" {
-		//		break
-		//	}
-		//	prev := reasoningSummaryTextByKey[key]
-		//	next := streamResp.Part.Text
-		//	delta := stringDeltaFromPrefix(prev, next)
-		//	reasoningSummaryTextByKey[key] = next
-		//	if !sendReasoningSummaryDelta(delta) {
-		//		sr.Stop(streamErr)
-		//		return
-		//	}
-
-		case "response.output_text.delta":
-			if !sendStartIfNeeded() {
-				sr.Stop(streamErr)
-				return
-			}
-
-			if streamResp.Delta != "" {
-				outputText.WriteString(streamResp.Delta)
-				usageText.WriteString(streamResp.Delta)
-				delta := streamResp.Delta
-				chunk := &dto.ChatCompletionsStreamResponse{
-					Id:      responseId,
-					Object:  "chat.completion.chunk",
-					Created: createAt,
-					Model:   model,
-					Choices: []dto.ChatCompletionsStreamResponseChoice{
-						{
-							Index: 0,
-							Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
-								Content: &delta,
-							},
-						},
-					},
-				}
-				if !sendChatChunk(chunk) {
-					sr.Stop(streamErr)
-					return
-				}
-			}
-
-		case "response.output_item.added", "response.output_item.done":
-			if streamResp.Item == nil {
-				break
-			}
-			if streamResp.Item.Type != "function_call" {
-				break
-			}
-
-			itemID := strings.TrimSpace(streamResp.Item.ID)
-			callID := strings.TrimSpace(streamResp.Item.CallId)
-			if callID == "" {
-				callID = itemID
-			}
-			if itemID != "" && callID != "" {
-				toolCallCanonicalIDByItemID[itemID] = callID
-			}
-			name := strings.TrimSpace(streamResp.Item.Name)
-			if name != "" {
-				toolCallNameByID[callID] = name
-			}
-
-			newArgs := streamResp.Item.ArgumentsString()
-			prevArgs := toolCallArgsByID[callID]
-			argsDelta := ""
-			if newArgs != "" {
-				if strings.HasPrefix(newArgs, prevArgs) {
-					argsDelta = newArgs[len(prevArgs):]
-				} else {
-					argsDelta = newArgs
-				}
-				toolCallArgsByID[callID] = newArgs
-			}
-
-			if !sendToolCallDelta(callID, name, argsDelta) {
-				sr.Stop(streamErr)
-				return
-			}
-
-		case "response.function_call_arguments.delta":
-			itemID := strings.TrimSpace(streamResp.ItemID)
-			callID := toolCallCanonicalIDByItemID[itemID]
-			if callID == "" {
-				callID = itemID
-			}
-			if callID == "" {
-				break
-			}
-			toolCallArgsByID[callID] += streamResp.Delta
-			if !sendToolCallDelta(callID, "", streamResp.Delta) {
-				sr.Stop(streamErr)
-				return
-			}
-
-		case "response.function_call_arguments.done":
-
-		case "response.completed":
-			if streamResp.Response != nil {
-				if streamResp.Response.Model != "" {
-					model = streamResp.Response.Model
-				}
-				if streamResp.Response.CreatedAt != 0 {
-					createAt = int64(streamResp.Response.CreatedAt)
-				}
-				if streamResp.Response.Usage != nil {
-					sawExplicitFinalUsage = true
-					if streamResp.Response.Usage.InputTokens != 0 {
-						usage.PromptTokens = streamResp.Response.Usage.InputTokens
-						usage.InputTokens = streamResp.Response.Usage.InputTokens
-					}
-					if streamResp.Response.Usage.OutputTokens != 0 {
-						usage.CompletionTokens = streamResp.Response.Usage.OutputTokens
-						usage.OutputTokens = streamResp.Response.Usage.OutputTokens
-					}
-					if streamResp.Response.Usage.TotalTokens != 0 {
-						usage.TotalTokens = streamResp.Response.Usage.TotalTokens
-					} else {
-						usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-					}
-					if streamResp.Response.Usage.InputTokensDetails != nil {
-						usage.PromptTokensDetails.CachedTokens = streamResp.Response.Usage.InputTokensDetails.CachedTokens
-						usage.PromptTokensDetails.ImageTokens = streamResp.Response.Usage.InputTokensDetails.ImageTokens
-						usage.PromptTokensDetails.AudioTokens = streamResp.Response.Usage.InputTokensDetails.AudioTokens
-					}
-					if streamResp.Response.Usage.CompletionTokenDetails.ReasoningTokens != 0 {
-						usage.CompletionTokenDetails.ReasoningTokens = streamResp.Response.Usage.CompletionTokenDetails.ReasoningTokens
-					}
-				}
-			}
-
-		case "response.error", "response.failed":
+		if streamResp.Type == "response.error" || streamResp.Type == "response.failed" {
 			if streamResp.Response != nil {
 				if oaiErr := streamResp.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
 					streamErr = types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)
@@ -449,8 +269,10 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, streamErr
 	}
 
+	usage := state.Usage
 	if usage.TotalTokens == 0 && !sawExplicitFinalUsage {
-		usage = service.ResponseText2Usage(c, usageText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+		usage = service.ResponseText2Usage(c, state.UsageText(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+		state.Usage = usage
 	}
 	normalizeTextUsage(usage)
 	if !hasValidTextUsage(usage) {

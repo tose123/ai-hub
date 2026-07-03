@@ -16,9 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
 import { Code, Table, Plus, Trash2 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -65,7 +64,7 @@ function parseJsonToEditorRows(json: string): EditorRow[] {
       key,
       value: typeof val === 'object' ? JSON.stringify(val) : String(val),
     }))
-  } catch (_error) {
+  } catch {
     return []
   }
 }

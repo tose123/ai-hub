@@ -35,7 +35,8 @@ import {
 } from '@/components/ui/drawer'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
-import { DataTableViewOptions } from '@/components/data-table'
+import { useMediaQuery } from '@/hooks'
+import { cn } from '@/lib/utils'
 
 interface LogsFilterToolbarProps<TData> {
   table: Table<TData>

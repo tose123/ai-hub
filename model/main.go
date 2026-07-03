@@ -311,7 +311,7 @@ func migrateDB() error {
 	if err != nil {
 		return err
 	}
-	if common.UsingSQLite {
+	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		if err := ensureTokenModelMappingColumn(); err != nil {
 			return err
 		}
@@ -341,7 +341,7 @@ func ensureTokenModelMappingColumn() error {
 		return nil
 	}
 
-	if common.UsingSQLite {
+	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		return DB.Exec("ALTER TABLE `" + tableName + "` ADD COLUMN `" + columnName + "` text").Error
 	}
 
@@ -360,7 +360,7 @@ func ensureTokenAutoGroupsOverrideColumn() error {
 		return nil
 	}
 
-	if common.UsingSQLite {
+	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		return DB.Exec("ALTER TABLE `" + tableName + "` ADD COLUMN `" + columnName + "` text").Error
 	}
 

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useForm, type SubmitErrorHandler } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
@@ -63,19 +63,12 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { DateTimePicker } from '@/components/datetime-picker'
-import {
-  SideDrawerSection,
-  SideDrawerSectionHeader,
-  sideDrawerContentClassName,
-  sideDrawerFooterClassName,
-  sideDrawerFormClassName,
-  sideDrawerHeaderClassName,
-  sideDrawerSwitchItemClassName,
-} from '@/components/drawer-layout'
-import { MultiSelect } from '@/components/multi-select'
 import { ModelMappingEditor } from '@/features/channels/components/model-mapping-editor'
 import { getPricing } from '@/features/pricing/api'
+import { useStatus } from '@/hooks/use-status'
+import { getUserModels, getUserGroups } from '@/lib/api'
+import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
+import { cn } from '@/lib/utils'
 import { createApiKey, updateApiKey, getApiKey } from '../api'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
@@ -150,7 +143,10 @@ export function ApiKeysMutateDrawer({
     })
   )
   const backendHasAuto = groups.some((g) => g.value === 'auto')
-  const pricingAutoGroups = (pricingData?.auto_groups || []).filter(Boolean)
+  const pricingAutoGroups = useMemo(
+    () => (pricingData?.auto_groups || []).filter(Boolean),
+    [pricingData?.auto_groups]
+  )
   const schema = getApiKeyFormSchema(t)
 
   const form = useForm<ApiKeyFormValues>({
@@ -161,13 +157,21 @@ export function ApiKeysMutateDrawer({
   // Load existing data when updating
   useEffect(() => {
     if (open && isUpdate && currentRow) {
-      getApiKey(currentRow.id).then((result) => {
-        if (result.success && result.data) {
-          setAutoGroupsOverrideEdited(result.data.auto_groups_override?.length > 0)
-          userEditedOverrideRef.current = false
-          form.reset(transformApiKeyToFormDefaults(result.data, pricingAutoGroups))
-        }
-      })
+      void getApiKey(currentRow.id)
+        .then((result) => {
+          if (result.success && result.data) {
+            setAutoGroupsOverrideEdited(
+              result.data.auto_groups_override?.length > 0
+            )
+            userEditedOverrideRef.current = false
+            form.reset(
+              transformApiKeyToFormDefaults(result.data, pricingAutoGroups)
+            )
+          }
+        })
+        .catch(() => {
+          toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+        })
     } else if (open && !isUpdate) {
       userEditedOverrideRef.current = false
       prevModeRef.current = ''
@@ -175,7 +179,16 @@ export function ApiKeysMutateDrawer({
         getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto)
       )
     }
-  }, [open, isUpdate, currentRow, form, defaultUseAutoGroup, backendHasAuto])
+  }, [
+    open,
+    isUpdate,
+    currentRow,
+    form,
+    defaultUseAutoGroup,
+    backendHasAuto,
+    pricingAutoGroups,
+    t,
+  ])
 
   useEffect(() => {
     if (!open) return
@@ -196,11 +209,11 @@ export function ApiKeysMutateDrawer({
       }
     }
     prevModeRef.current = group || ''
-  }, [open, form])
+  }, [open, form, pricingAutoGroups])
 
   const availableOverrideGroups = groups.filter((g) => g.value !== 'auto')
-  const availableOverrideGroupNames = availableOverrideGroups.map(
-    (g) => g.value
+  const availableOverrideGroupNames = new Set(
+    availableOverrideGroups.map((g) => g.value)
   )
 
   const autoGroupsOverride = form.watch('auto_groups_override') || []
@@ -211,7 +224,7 @@ export function ApiKeysMutateDrawer({
       setAutoGroupError(t('Please select a group'))
       return
     }
-    if (!availableOverrideGroupNames.includes(next)) {
+    if (!availableOverrideGroupNames.has(next)) {
       setAutoGroupError(t('Invalid group in auto groups override'))
       return
     }
@@ -294,7 +307,7 @@ export function ApiKeysMutateDrawer({
         const hasInvalid = normalized.some(
           (groupValue) =>
             groupValue === 'auto' ||
-            !availableOverrideGroupNames.includes(groupValue)
+            !availableOverrideGroupNames.has(groupValue)
         )
         if (hasDuplicate || hasInvalid) {
           form.setError('auto_groups_override', {
@@ -356,7 +369,7 @@ export function ApiKeysMutateDrawer({
           triggerRefresh()
         }
       }
-    } catch (_error) {
+    } catch {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setIsSubmitting(false)
@@ -660,7 +673,9 @@ export function ApiKeysMutateDrawer({
                           min='1'
                           placeholder={t('Number of keys to create')}
                           onChange={(e) =>
-                            field.onChange(parseInt(e.target.value, 10) || 1)
+                            field.onChange(
+                              Number.parseInt(e.target.value, 10) || 1
+                            )
                           }
                         />
                       </FormControl>
@@ -696,7 +711,7 @@ export function ApiKeysMutateDrawer({
                           step={tokensOnly ? 1 : 0.01}
                           placeholder={quotaPlaceholder}
                           onChange={(e) =>
-                            field.onChange(parseFloat(e.target.value) || 0)
+                            field.onChange(Number.parseFloat(e.target.value) || 0)
                           }
                         />
                       </FormControl>
