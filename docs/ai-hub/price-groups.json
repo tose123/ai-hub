@@ -1,0 +1,101 @@
+[
+  "//分组比例",
+  {
+    "auto": 0,
+    "default": 1,
+    "OpenAI×0.01": 0.01,
+    "OpenAI×0.02": 0.02,
+    "OpenAI×0.03": 0.03,
+    "OpenAI×0.05": 0.05,
+    "OpenAI×0.08": 0.08,
+    "OpenAI×0.12": 0.12,
+    "OpenAI×0.18": 0.18,
+    "GPT-Image×0.06": 0.06,
+    "GPT-Image×0.12": 0.12,
+    "GPT-Image×0.18": 0.18,
+    "GPT-Image×0.24": 0.24,
+    "Claude×0.03": 0.03,
+    "Claude×0.06": 0.06,
+    "Claude×0.09": 0.09,
+    "Claude×0.15": 0.15,
+    "Claude×0.25": 0.25,
+    "Claude×0.35": 0.35,
+    "Claude×0.45": 0.45,
+    "Gemini×0.06": 0.06,
+    "Gemini×0.12": 0.12,
+    "Gemini×0.18": 0.18,
+    "DeepSeek×0.15": 0.15,
+    "DeepSeek×0.25": 0.25,
+    "DeepSeek×0.55": 0.55
+  },
+  "//充值比例",
+  {
+    "default": 1,
+    "svip": 1,
+    "vip": 1
+  },
+  "//可选分组",
+  {
+    "auto": "自动分组",
+    "default": "默认分组",
+    "OpenAI×0.01": "OpenAI 官方价格 * 0.01",
+    "OpenAI×0.02": "OpenAI 官方价格 * 0.02",
+    "OpenAI×0.03": "OpenAI 官方价格 * 0.03",
+    "OpenAI×0.05": "OpenAI 官方价格 * 0.05",
+    "OpenAI×0.08": "OpenAI 官方价格 * 0.08",
+    "OpenAI×0.12": "OpenAI 官方价格 * 0.12",
+    "OpenAI×0.18": "OpenAI 官方价格 * 0.18",
+    "GPT-Image×0.06": "GPT-Image-2 生图约 ¥0.04/张",
+    "GPT-Image×0.12": "GPT-Image-2 生图约 ¥0.08/张",
+    "GPT-Image×0.18": "GPT-Image-2 生图约 ¥0.13/张",
+    "GPT-Image×0.24": "GPT-Image-2 生图约 ¥0.17/张",
+    "Claude×0.03": "Claude 官方价格 * 0.03",
+    "Claude×0.06": "Claude 官方价格 * 0.06",
+    "Claude×0.09": "Claude 官方价格 * 0.09",
+    "Claude×0.15": "Claude 官方价格 * 0.15",
+    "Claude×0.25": "Claude 官方价格 * 0.25",
+    "Claude×0.35": "Claude 官方价格 * 0.35",
+    "Claude×0.45": "Claude 官方价格 * 0.45",
+    "Gemini×0.06": "Gemini 官方价格 * 0.06",
+    "Gemini×0.12": "Gemini 官方价格 * 0.12",
+    "Gemini×0.18": "Gemini 官方价格 * 0.18",
+    "DeepSeek×0.15": "DeepSeek 官方价格 * 0.15",
+    "DeepSeek×0.25": "DeepSeek 官方价格 * 0.25",
+    "DeepSeek×0.55": "DeepSeek 官方价格 * 0.55"
+  },
+  "//分组间覆盖",
+  {
+    "vip": {
+      "edit_this": 0.9
+    }
+  },
+  "//自动分组顺序",
+  [
+    "OpenAI×0.01",
+    "OpenAI×0.02",
+    "OpenAI×0.03",
+    "OpenAI×0.05",
+    "GPT-Image×0.06",
+    "GPT-Image×0.12",
+    "GPT-Image×0.18",
+    "GPT-Image×0.24",
+    "Claude×0.03",
+    "Claude×0.06",
+    "Claude×0.09",
+    "Claude×0.15",
+    "Gemini×0.06",
+    "Gemini×0.12",
+    "Gemini×0.18",
+    "DeepSeek×0.15",
+    "DeepSeek×0.25",
+    "DeepSeek×0.55",
+    "default"
+  ],
+  "//特殊可用分组规则",
+  {
+    "vip": {
+      "-:remove_1": "vip_removed_group_1",
+      "append_1": "vip_special_group_1"
+    }
+  }
+]
