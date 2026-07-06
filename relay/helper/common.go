@@ -39,6 +39,10 @@ func FlushWriter(c *gin.Context) (err error) {
 	return nil
 }
 
+func requestContextDone(c *gin.Context) bool {
+	return c != nil && c.Request != nil && c.Request.Context().Err() != nil
+}
+
 func SetEventStreamHeaders(c *gin.Context) {
 	if c == nil || c.Writer == nil || common.IsClientGone(c) {
 		return
@@ -89,7 +93,7 @@ func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data st
 	markResponsePayloadWritten(c)
 	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
 	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s", data)})
-	_ = FlushWriter(c)
+	return FlushWriter(c)
 }
 
 func StringData(c *gin.Context, str string) error {
