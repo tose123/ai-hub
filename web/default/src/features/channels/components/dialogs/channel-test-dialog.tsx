@@ -1195,40 +1195,31 @@ function ChannelTestDialogContent({
 
 function TestStatusCell({ result }: { result?: TestResult }) {
   const { t } = useTranslation()
-  const effectiveTotal = Math.max(0, progress.total - progress.skipped)
-  const effectiveCompleted = Math.max(0, progress.completed - progress.skipped)
-  const progressValue =
-    effectiveTotal > 0
-      ? Math.min(
-          100,
-          Math.round((effectiveCompleted / effectiveTotal) * 100)
-        )
-      : 100
 
-  return (
-    <div className='bg-muted/30 flex flex-col gap-2 rounded-md border p-3'>
-      <div className='flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between'>
-        <p className='text-sm font-medium'>
-          {isStopping
-            ? t('Stopping batch test...')
-            : t('Batch testing models...')}
-        </p>
-        <p className='text-muted-foreground text-xs tabular-nums'>
-          {t('{{completed}}/{{total}} completed', {
-            completed: effectiveCompleted,
-            total: effectiveTotal,
-          })}
-        </p>
-      </div>
-      <Progress value={progressValue} />
-      <p className='text-muted-foreground text-xs'>
-        {t('{{success}} succeeded, {{failed}} failed', {
-          success: progress.success,
-          failed: progress.failed,
-        })}
-      </p>
-    </div>
-  )
+  if (!result || result.status === 'idle') {
+    return (
+      <StatusBadge label={t('Not tested')} variant='neutral' copyable={false} />
+    )
+  }
+
+  if (result.status === 'testing') {
+    return (
+      <StatusBadge variant='info' copyable={false}>
+        <Loader2 className='size-3.5 shrink-0 animate-spin' />
+        <span className='min-w-0 truncate leading-normal'>
+          {t('Testing...')}
+        </span>
+      </StatusBadge>
+    )
+  }
+
+  if (result.status === 'success') {
+    return (
+      <StatusBadge label={t('Success')} variant='success' copyable={false} />
+    )
+  }
+
+  return <StatusBadge label={t('Failed')} variant='danger' copyable={false} />
 }
 
 function TestResultCell({
