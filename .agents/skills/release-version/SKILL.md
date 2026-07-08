@@ -1,6 +1,6 @@
 ---
 name: release-version
-description: Create and push a timestamped release tag for this repository. Use when the user asks to publish a version, run "/release-version" or "release-version", says "发布版本", "发版", "打 tag", or wants the latest commit tagged as China Standard Time format vYY.MM.DD.HHMM and pushed to the origin remote together with the current branch.
+description: Use when the user asks to publish a version, run "/release-version" or "release-version", says "发布版本", "发版", "打 tag", or wants the latest commit tagged as China Standard Time format vYY.MM.DD.HHMM and pushed to origin.
 ---
 
 # Release Version
@@ -40,7 +40,30 @@ Rules:
 - If `origin` is missing, stop and ask for the target remote.
 - Never use force push, delete tags, move tags, or overwrite existing tags.
 
-### 2. Generate the tag
+### 2. Release readiness checks
+
+Run release checks before creating any tag. A release tag must not be created for code that is known to fail the Docker publish workflow.
+
+For this repository, Docker publish runs `bun install --frozen-lockfile` from `web/`. If `web/package.json` and `web/bun.lock` exist, run:
+
+```bash
+(cd web && bun install --frozen-lockfile)
+```
+
+Rules:
+
+- If this fails with duplicate package keys, `InvalidPackageKey`, `failed to parse lockfile`, or `lockfile had changes, but lockfile is frozen`, stop before tagging.
+- Recovery is: run `(cd web && bun install)`, inspect `git diff -- web/bun.lock`, confirm the diff is only lockfile normalization/removal of duplicate or stale entries, then re-run `(cd web && bun install --frozen-lockfile)`.
+- If `bun install` changes files, commit those changes first. Do not tag uncommitted lockfile changes.
+- If Docker publish recently failed at `Dockerfile` `RUN bun install --frozen-lockfile`, or if `web/bun.lock` changed in the release commit, prefer the stronger local check:
+
+```bash
+docker build --target builder --progress=plain -t ai-hub-release-check .
+```
+
+This mirrors the Docker builder path and catches Bun-version-sensitive lockfile issues before the release tag triggers CI.
+
+### 3. Generate the tag
 
 Generate the tag with China Standard Time explicitly, regardless of the machine's local timezone:
 
@@ -67,7 +90,7 @@ git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1 && echo
 
 If the tag already exists because another release happened in the same minute, wait until the next China Standard Time minute, regenerate the tag, and re-run the checks. Do not reuse or move the existing tag.
 
-### 3. Create the tag on HEAD
+### 4. Create the tag on HEAD
 
 Use an annotated tag so the release has a stable message:
 
@@ -84,7 +107,7 @@ git rev-parse HEAD
 
 The two full commit hashes must match.
 
-### 4. Push code and tag
+### 5. Push code and tag
 
 Push the current branch and only the new tag:
 
@@ -96,13 +119,14 @@ git push origin "$tag"
 
 Do not use `git push --tags`; it may push unrelated local tags.
 
-### 5. Report
+### 6. Report
 
 Reply in Chinese with:
 
 - release tag name;
 - branch pushed;
 - short commit hash;
+- release readiness checks that were run;
 - confirmation that both the branch and tag were pushed to `origin`.
 
 If any step fails, report the failed step and the exact recovery needed. Do not silently retry with force options.
