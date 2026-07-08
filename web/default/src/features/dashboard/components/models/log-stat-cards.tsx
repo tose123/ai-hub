@@ -57,6 +57,56 @@ function formatStatNumber(value: number, locale: Intl.LocalesArgument) {
   }
 }
 
+type StatCardItem = {
+  value: string
+  fullValue: string
+  desc: string
+}
+
+function StatCardValue({
+  loading,
+  error,
+  item,
+}: {
+  loading: boolean
+  error: boolean
+  item: StatCardItem
+}) {
+  if (loading) {
+    return (
+      <div className='mt-2 flex flex-col gap-1.5'>
+        <Skeleton className='h-7 w-20' />
+        <Skeleton className='h-3.5 w-28' />
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <>
+        <div className='text-muted-foreground mt-1.5 font-mono text-lg font-bold tracking-tight tabular-nums sm:mt-2 sm:text-2xl'>
+          --
+        </div>
+        <div className='text-muted-foreground/40 mt-1 hidden text-xs md:block'>
+          {item.desc}
+        </div>
+      </>
+    )
+  }
+  return (
+    <>
+      <div
+        className='text-foreground mt-1.5 max-w-full truncate font-mono text-lg font-bold tracking-tight tabular-nums sm:mt-2 sm:text-2xl'
+        title={item.fullValue}
+      >
+        {item.value}
+      </div>
+      <div className='text-muted-foreground/60 mt-1 hidden text-xs md:block'>
+        {item.desc}
+      </div>
+    </>
+  )
+}
+
 export function LogStatCards(props: LogStatCardsProps) {
   const { i18n } = useTranslation()
   const statCardsConfig = useModelStatCardsConfig()
@@ -90,7 +140,7 @@ export function LogStatCards(props: LogStatCardsProps) {
     const timeDiff = (timeRange.end_timestamp - timeRange.start_timestamp) / 60
     setTimeRangeMinutes(timeDiff)
 
-    getUserQuotaDates(buildQueryParams(timeRange, filters), isAdmin)
+    void getUserQuotaDates(buildQueryParams(timeRange, filters), isAdmin)
       .then((res) => {
         if (abortController.signal.aborted) return
         const data = res?.data || []
@@ -162,33 +212,7 @@ export function LogStatCards(props: LogStatCardsProps) {
                 </div>
               </div>
 
-              {loading ? (
-                <div className='mt-2 flex flex-col gap-1.5'>
-                  <Skeleton className='h-7 w-20' />
-                  <Skeleton className='h-3.5 w-28' />
-                </div>
-              ) : error ? (
-                <>
-                  <div className='text-muted-foreground mt-1.5 font-mono text-lg font-bold tracking-tight tabular-nums sm:mt-2 sm:text-2xl'>
-                    --
-                  </div>
-                  <div className='text-muted-foreground/40 mt-1 hidden text-xs md:block'>
-                    {it.desc}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div
-                    className='text-foreground mt-1.5 max-w-full truncate font-mono text-lg font-bold tracking-tight tabular-nums sm:mt-2 sm:text-2xl'
-                    title={it.fullValue}
-                  >
-                    {it.value}
-                  </div>
-                  <div className='text-muted-foreground/60 mt-1 hidden text-xs md:block'>
-                    {it.desc}
-                  </div>
-                </>
-              )}
+              <StatCardValue loading={loading} error={error} item={it} />
             </div>
           )
         })}

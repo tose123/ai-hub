@@ -40,8 +40,11 @@ export function TransferDialog({
   transferring,
 }: TransferDialogProps) {
   const { t } = useTranslation()
+  const canTransfer = availableQuota > 0
 
   const handleConfirm = async () => {
+    if (!canTransfer) return
+
     const success = await onConfirm(availableQuota)
     if (success) {
       onOpenChange(false)
