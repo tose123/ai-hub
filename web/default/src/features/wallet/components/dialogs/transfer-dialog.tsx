@@ -68,7 +68,10 @@ export function TransferDialog({
           >
             {t('Cancel')}
           </Button>
-          <Button onClick={handleConfirm} disabled={transferring}>
+          <Button
+            onClick={handleConfirm}
+            disabled={transferring || !canTransfer}
+          >
             {transferring && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
             {t('Transfer')}
           </Button>
@@ -97,13 +100,13 @@ export function TransferDialog({
             type='number'
             value={amount}
             onChange={(e) => setAmount(Number(e.target.value))}
-            min={QUOTA_PER_DOLLAR}
-            max={availableQuota}
-            step={QUOTA_PER_DOLLAR}
+            min={minimumAmount}
+            max={maximumAmount}
+            step={minimumAmount}
             className='font-mono text-lg'
           />
           <p className='text-muted-foreground text-xs'>
-            {t('Minimum:')} {formatQuota(QUOTA_PER_DOLLAR)}
+            {t('Minimum:')} {formatQuota(minimumQuota)}
           </p>
         </div> */}
       </div>
