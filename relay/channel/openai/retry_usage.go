@@ -7,6 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -39,9 +40,10 @@ func hasValidTextUsage(usage *dto.Usage) bool {
 	return usage != nil && usage.PromptTokens+usage.CompletionTokens > 0
 }
 
-func newMissingTextUsageRetryableError() *types.NewAPIError {
+func newMissingTextUsageRetryableError(c *gin.Context) *types.NewAPIError {
+	service.InvalidateCurrentChannelAffinityCache(c)
 	return types.NewErrorWithStatusCode(
-		errors.New("上游未返回有效计费信息（零 token），可重试"),
+		errors.New("Upstream returned no valid billing information (zero tokens); retryable"),
 		types.ErrorCodeBadResponse,
 		http.StatusBadGateway,
 	)

@@ -115,7 +115,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	}
 	normalizeTextUsage(&usage)
 	if !hasValidTextUsage(&usage) {
-		return nil, newMissingTextUsageRetryableError()
+		return nil, newMissingTextUsageRetryableError(c)
 	}
 
 	// 写入新的 response body
@@ -263,7 +263,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	normalizeTextUsage(usage)
 	if !hasValidTextUsage(usage) {
-		apiErr := newMissingTextUsageRetryableError()
+		apiErr := newMissingTextUsageRetryableError(c)
 		if !common.HasClientVisibleResponse(c) {
 			return nil, apiErr
 		}

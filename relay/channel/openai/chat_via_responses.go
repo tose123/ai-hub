@@ -54,7 +54,7 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 	normalizeTextUsage(usage)
 	if !hasValidTextUsage(usage) {
-		return nil, newMissingTextUsageRetryableError()
+		return nil, newMissingTextUsageRetryableError(c)
 	}
 
 	var responseBody []byte
@@ -276,7 +276,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	}
 	normalizeTextUsage(usage)
 	if !hasValidTextUsage(usage) {
-		apiErr := newMissingTextUsageRetryableError()
+		apiErr := newMissingTextUsageRetryableError(c)
 		if !common.HasClientVisibleResponse(c) {
 			return nil, apiErr
 		}

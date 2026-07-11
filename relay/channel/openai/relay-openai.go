@@ -182,7 +182,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	normalizeTextUsage(usage)
 
 	if !hasValidTextUsage(usage) {
-		apiErr := newMissingTextUsageRetryableError()
+		apiErr := newMissingTextUsageRetryableError(c)
 		if !common.HasClientVisibleResponse(c) {
 			return nil, apiErr
 		}
@@ -267,7 +267,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	applyUsagePostProcessing(info, &simpleResponse.Usage, responseBody)
 	normalizeTextUsage(&simpleResponse.Usage)
 	if !hasValidTextUsage(&simpleResponse.Usage) {
-		return nil, newMissingTextUsageRetryableError()
+		return nil, newMissingTextUsageRetryableError(c)
 	}
 
 	switch info.RelayFormat {

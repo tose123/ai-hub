@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -47,6 +49,16 @@ func TestOpenaiHandlerRetriesWhenUsageIsZero(t *testing.T) {
 	}
 	body := `{"id":"chatcmpl-a","object":"chat.completion","created":1,"model":"gpt-5","choices":[{"index":0,"message":{"role":"assistant","content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}`
 	c, recorder, resp := newTextTestContext(t, "/v1/chat/completions", body, "application/json", info)
+	cache := service.GetChannelAffinityCacheForTest()
+	cacheKeySuffix := fmt.Sprintf("zero-token-test:%d", time.Now().UnixNano())
+	cacheKey := cache.FullKey(cacheKeySuffix)
+	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 9527, time.Minute))
+	t.Cleanup(func() {
+		_, _ = cache.DeleteMany([]string{cacheKeySuffix})
+	})
+	c.Set("channel_affinity_cache_key", cacheKey)
+	c.Set("channel_affinity_ttl_seconds", 60)
+	c.Set("channel_affinity_skip_retry_on_failure", true)
 
 	usage, err := OpenaiHandler(c, info, resp)
 
@@ -55,6 +67,10 @@ func TestOpenaiHandlerRetriesWhenUsageIsZero(t *testing.T) {
 	require.Equal(t, types.ErrorCodeBadResponse, err.GetErrorCode())
 	require.Equal(t, http.StatusBadGateway, err.StatusCode)
 	require.Empty(t, recorder.Body.String())
+	_, found, cacheErr := cache.Get(cacheKeySuffix)
+	require.NoError(t, cacheErr)
+	require.False(t, found)
+	require.False(t, service.ShouldSkipRetryAfterChannelAffinityFailure(c))
 }
 
 func TestOaiStreamHandlerWritesTerminalErrorAfterPartialOutput(t *testing.T) {

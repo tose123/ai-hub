@@ -666,6 +666,19 @@ func ClearCurrentChannelAffinityCache(c *gin.Context) bool {
 	return false
 }
 
+func InvalidateCurrentChannelAffinityCache(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	if _, _, ok := getChannelAffinityContext(c); !ok {
+		return false
+	}
+	deleted := ClearCurrentChannelAffinityCache(c)
+	c.Set(ginKeyChannelAffinityCacheKey, "")
+	c.Set(ginKeyChannelAffinitySkipRetry, false)
+	return deleted
+}
+
 func ShouldKeepChannelAffinityOnChannelDisabled() bool {
 	setting := operation_setting.GetChannelAffinitySetting()
 	if setting == nil {
