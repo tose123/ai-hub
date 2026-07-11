@@ -21,7 +21,7 @@ import { CircleAlert, GitBranch, Sparkles, KeyRound } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
+import { CopyableStatusBadge, StatusBadge } from '@/components/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   Popover,
@@ -34,6 +34,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useGroupRatios } from '@/hooks/use-group-ratios'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import {
@@ -80,7 +81,10 @@ function formatRatioCompact(ratio: number | undefined): string {
     : ratio.toFixed(4).replace(/\.?0+$/, '')
 }
 
-function getGroupRatioText(other: LogOtherData | null): string | null {
+function getGroupRatioText(
+  other: LogOtherData | null,
+  configuredGroupRatio?: number
+): string | null {
   const userGroupRatio = other?.user_group_ratio
   if (
     userGroupRatio != null &&
@@ -90,18 +94,12 @@ function getGroupRatioText(other: LogOtherData | null): string | null {
     return `${formatRatioCompact(userGroupRatio)}x`
   }
 
-  const groupRatio = other?.group_ratio
-  if (groupRatio != null && groupRatio !== 1 && Number.isFinite(groupRatio)) {
+  const groupRatio = other?.group_ratio ?? configuredGroupRatio
+  if (groupRatio != null && Number.isFinite(groupRatio)) {
     return `${formatRatioCompact(groupRatio)}x`
   }
 
   return null
-}
-
-function splitQuotaDisplay(value: string): { prefix: string; amount: string } {
-  const match = value.match(/^([^0-9+\-.,\s]+)(.+)$/)
-  if (!match) return { prefix: '', amount: value }
-  return { prefix: match[1], amount: match[2] }
 }
 
 function buildDetailSegments(
@@ -294,6 +292,7 @@ function buildTypeDetailSegments(
 
 export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
   const { t } = useTranslation()
+  const groupRatios = useGroupRatios()
   const columns: ColumnDef<UsageLog>[] = [
     {
       accessorKey: 'created_at',
@@ -305,16 +304,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
         return (
           <div className='flex min-w-0 flex-col gap-0.5'>
-            <span className='truncate font-mono text-xs tabular-nums'>
+            <span className='text-xs tabular-nums'>
               {formatTimestampToDate(timestamp)}
             </span>
-            <StatusBadge
-              label={t(config.label)}
-              variant={config.color as StatusBadgeProps['variant']}
-              size='sm'
-              copyable={false}
-              className='!text-xs [&_span]:!text-xs'
-            />
+            <StatusBadge variant={config.variant} size='sm'>
+              {t(config.label)}
+            </StatusBadge>
           </div>
         )
       },
@@ -325,6 +320,11 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       },
       enableHiding: false,
       size: 180,
+      meta: {
+        cardRole: 'primary',
+        cardOrder: 10,
+        contentMode: 'full',
+      },
     },
   ]
 
@@ -371,24 +371,23 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                   }
                 >
                   <div className='relative inline-flex w-fit items-center gap-1'>
-                    <StatusBadge
-                      label={channelIdDisplay}
-                      autoColor={String(log.channel)}
-                      copyText={String(log.channel)}
+                    <CopyableStatusBadge
+                      value={String(log.channel)}
+                      variant='neutral'
                       size='sm'
-                      showDot={false}
                       className='font-mono'
-                    />
+                    >
+                      {channelIdDisplay}
+                    </CopyableStatusBadge>
                     {showMultiKeyIndex && (
                       <StatusBadge
-                        label={String(multiKeyIndex)}
                         size='sm'
-                        showDot={false}
-                        copyable={false}
                         variant='neutral'
-                        className='h-5 min-w-5 justify-center rounded-full px-1 font-mono text-xs'
+                        className='min-w-5 justify-center font-mono'
                         aria-label={`${t('Key')} ${multiKeyIndex}`}
-                      />
+                      >
+                        {multiKeyIndex}
+                      </StatusBadge>
                     )}
                     {hasRetryChain && (
                       <Popover>
@@ -403,7 +402,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                           }
                         >
                           <GitBranch
-                            className='size-3.5 text-amber-500'
+                            className='text-warning size-3.5'
                             aria-hidden='true'
                           />
                         </PopoverTrigger>
@@ -424,7 +423,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                     {affinity && (
                       <button
                         type='button'
-                        className='absolute -top-1 -right-1 leading-none text-amber-500'
+                        className='text-warning absolute -top-1 -right-1 leading-none'
                         onClick={(e) => {
                           e.stopPropagation()
                           setAffinityTarget({
@@ -444,7 +443,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                     )}
                   </div>
                   {log.channel_name && (
-                    <span className='text-muted-foreground/70 truncate [font-family:var(--font-body)] !text-xs'>
+                    <span className='text-subtle-foreground truncate text-xs'>
                       {channelName}
                     </span>
                   )}
@@ -486,6 +485,11 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
             </TooltipProvider>
           )
         },
+        meta: {
+          cardRole: 'primary',
+          cardOrder: 20,
+          contentMode: 'wrap',
+        },
       },
       {
         id: 'user',
@@ -511,7 +515,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               <Avatar className='ring-border/60 size-6 ring-1 max-sm:hidden'>
                 <AvatarFallback
                   className={cn(
-                    'text-[11px] font-semibold',
+                    'text-xs font-semibold',
                     !sensitiveVisible && 'bg-muted text-muted-foreground'
                   )}
                   style={
@@ -540,6 +544,11 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
             </button>
           )
         },
+        meta: {
+          cardRole: 'primary',
+          cardOrder: 30,
+          contentMode: 'wrap',
+        },
       }
     )
   }
@@ -561,25 +570,33 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       if (!group) group = other?.group || ''
 
       const metaParts: string[] = []
-      const groupRatioText = getGroupRatioText(other)
+      const groupRatioText = getGroupRatioText(
+        other,
+        group ? groupRatios[group] : undefined
+      )
       if (group) {
         metaParts.push(sensitiveVisible ? group : '••••')
       }
       if (groupRatioText) metaParts.push(groupRatioText)
 
       return (
-        <div className='flex max-w-[200px] flex-col gap-0.5'>
+        <div className='flex w-max flex-col gap-0.5'>
           <TooltipProvider delay={300}>
             <Tooltip>
-              <TooltipTrigger render={<div className='max-w-full' />}>
-                <StatusBadge
-                  label={displayName}
-                  icon={KeyRound}
-                  copyText={sensitiveVisible ? tokenName : undefined}
-                  size='sm'
-                  showDot={false}
-                  className='border-border/60 bg-muted/30 text-foreground h-6 max-w-full gap-1.5 overflow-hidden rounded-md border px-2 py-0.5 [font-family:var(--font-body)]'
-                />
+              <TooltipTrigger render={<div className='shrink-0' />}>
+                {sensitiveVisible ? (
+                  <CopyableStatusBadge
+                    value={tokenName}
+                    variant='neutral'
+                    size='sm'
+                  >
+                    {displayName}
+                  </CopyableStatusBadge>
+                ) : (
+                  <StatusBadge variant='neutral' size='sm'>
+                    {displayName}
+                  </StatusBadge>
+                )}
               </TooltipTrigger>
               {sensitiveVisible && tokenName.length > 16 && (
                 <TooltipContent side='top' className='max-w-xs break-all'>
@@ -589,7 +606,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
             </Tooltip>
           </TooltipProvider>
           {metaParts.length > 0 && (
-            <span className='text-muted-foreground/60 truncate [font-family:var(--font-body)] !text-xs'>
+            <span className='text-subtle-foreground text-xs [overflow-wrap:anywhere] break-words'>
               {metaParts.join(' · ')}
             </span>
           )}
@@ -597,6 +614,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       )
     },
     size: 160,
+    meta: {
+      cardRole: 'primary',
+      cardOrder: 40,
+      cardSpan: 2,
+      contentMode: 'full',
+    },
   })
   columns.push(
     {
@@ -617,7 +640,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           </div>
         )
       },
-      meta: { mobileTitle: true },
+      size: 180,
+      meta: {
+        cardRole: 'title',
+        cardSpan: 2,
+        contentMode: 'full',
+      },
     },
     {
       accessorKey: 'use_time',
@@ -655,9 +683,10 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                 label={formatUseTime(useTime, 0)}
                 variant={timeVariant as StatusBadgeProps['variant']}
                 size='sm'
-                copyable={false}
-                className={cn('rounded-md font-mono', timingBgMap[timeVariant])}
-              />
+                className='tabular-nums'
+              >
+                {formatUseTime(useTime)}
+              </StatusBadge>
               {log.is_stream &&
                 (frt != null && frt > 0 ? (
                   <StatusBadge
@@ -675,17 +704,16 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                   />
                 ) : (
                   <StatusBadge
-                    label='N/A'
                     variant='neutral'
                     size='sm'
-                    showDot={false}
-                    copyable={false}
-                    className={cn('rounded-md font-mono', timingBgMap.neutral)}
-                  />
+                    className='tabular-nums'
+                  >
+                    N/A
+                  </StatusBadge>
                 ))}
             </div>
-            <div className='flex items-center gap-1 [font-family:var(--font-body)] !text-xs leading-none'>
-              <span className='text-muted-foreground/60 [font-family:var(--font-body)] !text-xs leading-none'>
+            <div className='flex items-center gap-1 text-xs leading-none'>
+              <span className='text-subtle-foreground text-xs leading-none'>
                 {log.is_stream ? t('Stream') : t('Non-stream')}
                 {tokensPerSecond != null && (
                   <>
@@ -741,6 +769,11 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           </div>
         )
       },
+      meta: {
+        cardRole: 'primary',
+        cardOrder: 50,
+        contentMode: 'full',
+      },
     },
 
     {
@@ -795,6 +828,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           </div>
         )
       },
+      meta: {
+        cardRole: 'primary',
+        cardOrder: 60,
+        cardSpan: 2,
+        contentMode: 'full',
+      },
     },
 
     {
@@ -814,15 +853,11 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               <Tooltip>
                 <TooltipTrigger
                   render={
-                    <StatusBadge
-                      label={t('Subscription')}
-                      variant='success'
-                      size='sm'
-                      copyable={false}
-                      className='cursor-help'
-                    />
+                    <span className='text-success cursor-help text-sm font-medium' />
                   }
-                />
+                >
+                  {t('Subscription')}
+                </TooltipTrigger>
                 <TooltipContent>
                   <span>
                     {t('Deducted by subscription')}: {formatLogQuota(quota)}
@@ -833,19 +868,15 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           )
         }
 
-        const quotaStr = formatLogQuota(quota)
-        const quotaDisplay = splitQuotaDisplay(quotaStr)
-
         return (
-          <div className='flex flex-col gap-0.5'>
-            <span className='border-border/80 bg-muted/60 inline-flex h-6 w-fit items-center rounded-md border px-2 [font-family:var(--font-body)] text-sm leading-none font-semibold tabular-nums'>
-              {quotaDisplay.prefix && (
-                <span className='mr-1'>{quotaDisplay.prefix}</span>
-              )}
-              <span>{quotaDisplay.amount}</span>
-            </span>
-          </div>
+          <span className='text-sm font-medium tabular-nums'>
+            {formatLogQuota(quota)}
+          </span>
         )
+      },
+      meta: {
+        cardRole: 'badge',
+        contentMode: 'full',
       },
     },
 
@@ -856,6 +887,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const [dialogOpen, setDialogOpen] = useState(false)
         const log = row.original
         const other = parseLogOther(log.other)
+        const ip = log.ip.trim()
 
         const segments = buildDetailSegments(log, other, t, isAdmin)
         const primary = segments[0]
@@ -897,7 +929,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           <>
             <button
               type='button'
-              className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
+              className='group flex max-w-[200px] flex-col gap-0.5 text-left text-xs'
               onClick={() => setDialogOpen(true)}
               title={t('Click to view full details')}
             >
@@ -914,6 +946,14 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       },
       size: 180,
       maxSize: 200,
+      meta: {
+        pinned: 'right',
+        contentSized: true,
+        cardRole: 'secondary',
+        cardOrder: 10,
+        cardSpan: 2,
+        contentMode: 'summary',
+      },
     }
   )
 
