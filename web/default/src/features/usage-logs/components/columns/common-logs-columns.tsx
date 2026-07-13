@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ColumnDef } from '@tanstack/react-table'
-import { CircleAlert, GitBranch, Sparkles, KeyRound } from 'lucide-react'
+import { CircleAlert, GitBranch, KeyRound, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -49,6 +49,8 @@ import { LOG_TYPE_ALL_VALUE } from '../../constants'
 import type { UsageLog } from '../../data/schema'
 import {
   formatModelName,
+  getFirstResponseTimeColor,
+  getResponseTimeColor,
   getTieredBillingSummary,
   hasAnyCacheTokens,
   parseLogOther,
@@ -64,7 +66,7 @@ import {
 import type { LogOtherData } from '../../types'
 import { DetailsDialog } from '../dialogs/details-dialog'
 import { ModelBadge } from '../model-badge'
-import { TimingMetricsCell, StreamTpsCell } from '../timing-metrics-cell'
+import { TimingMetricsCell } from '../timing-metrics-cell'
 import { useUsageLogsContext } from '../usage-logs-provider'
 
 interface DetailSegment {
@@ -223,8 +225,8 @@ function buildTypeDetailSegments(
         muted: true,
       })
     }
-    } else {
-      const isPerCall = isPerCallBilling(other.model_price)
+  } else {
+    const isPerCall = isPerCallBilling(other.model_price)
     if (isPerCall && other.model_price != null) {
       segments.push({
         text: `${t('Per-call')} · ${formatBillingCurrencyFromUSD(other.model_price, priceOpts)}`,
@@ -636,31 +638,21 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
         const useTime = row.getValue('use_time') as number
         const other = parseLogOther(log.other)
+        const frt = other?.frt
         const tokensPerSecond =
           useTime > 0 && log.completion_tokens > 0
             ? log.completion_tokens / useTime
             : null
-          const timeVariant = getResponseTimeColor(useTime, log.completion_tokens)
-          const frtVariant = frt ? getFirstResponseTimeColor(frt / 1000) : null
-          const firstResponseVariant = frtVariant ?? 'neutral'
-
-          const timingBgMap: Record<string, string> = {
-          success:
-            'border border-emerald-200/40 bg-emerald-50/35 !text-emerald-600 dark:border-emerald-900/40 dark:bg-emerald-950/15 dark:!text-emerald-400',
-          warning:
-            'border border-amber-200/45 bg-amber-50/35 !text-amber-600 dark:border-amber-900/40 dark:bg-amber-950/15 dark:!text-amber-400',
-          danger:
-            'border border-rose-200/50 bg-rose-50/35 !text-red-600 dark:border-rose-900/40 dark:bg-rose-950/15 dark:!text-red-400',
-          neutral:
-            'border border-border/60 bg-muted/30 dark:border-border/40 dark:bg-muted/20',
-        }
+        const timeVariant = getResponseTimeColor(useTime, log.completion_tokens)
+        const frtVariant = frt
+          ? getFirstResponseTimeColor(frt / 1000)
+          : 'neutral'
 
         return (
           <div className='flex flex-col gap-1'>
             <div className='flex items-center gap-1.5'>
               <StatusBadge
-                label={formatUseTime(useTime, 0)}
-                variant={timeVariant as StatusBadgeProps['variant']}
+                variant={timeVariant}
                 size='sm'
                 className='tabular-nums'
               >
@@ -669,18 +661,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               {log.is_stream &&
                 (frt != null && frt > 0 ? (
                   <StatusBadge
-                    label={formatUseTime(frt / 1000)}
-                    variant={
-                      firstResponseVariant as StatusBadgeProps['variant']
-                    }
+                    variant={frtVariant}
                     size='sm'
-                    showDot={false}
-                    copyable={false}
-                    className={cn(
-                      'rounded-md font-mono',
-                      timingBgMap[firstResponseVariant]
-                    )}
-                  />
+                    className='tabular-nums'
+                  >
+                    {formatUseTime(frt / 1000)}
+                  </StatusBadge>
                 ) : (
                   <StatusBadge
                     variant='neutral'
@@ -708,9 +694,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger
-                      render={
-                        <CircleAlert className='size-3 text-amber-500' />
-                      }
+                      render={<CircleAlert className='size-3 text-amber-500' />}
                     />
                     <TooltipContent>
                       <span>{t('Client canceled the request')}</span>
@@ -773,14 +757,13 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           ? cacheWrite5m + cacheWrite1h
           : other?.cache_creation_tokens || 0
 
-        if (cacheReadTokens > promptTokens) promptTokens += cacheReadTokens;
-        if (cacheWriteTokens > promptTokens) promptTokens += cacheWriteTokens;
+        if (cacheReadTokens > promptTokens) promptTokens += cacheReadTokens
+        if (cacheWriteTokens > promptTokens) promptTokens += cacheWriteTokens
 
         return (
           <div className='flex flex-col gap-0.5'>
             <span className='font-mono text-xs font-medium tabular-nums'>
-              {formatTokens(promptTokens)} /{' '}
-              {formatTokens(completionTokens)}
+              {formatTokens(promptTokens)} / {formatTokens(completionTokens)}
             </span>
             {(cacheReadTokens > 0 || cacheWriteTokens > 0) && (
               <div className='flex items-center gap-1 text-[11px]'>
@@ -789,12 +772,20 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                 </span>
                 {cacheReadTokens > 0 && (
                   <span className='text-muted-foreground/60'>
-                    ↓{promptTokens ? (cacheReadTokens/promptTokens*100).toFixed(0) : 0}%
+                    ↓
+                    {promptTokens
+                      ? ((cacheReadTokens / promptTokens) * 100).toFixed(0)
+                      : 0}
+                    %
                   </span>
                 )}
                 {cacheWriteTokens > 0 && (
                   <span className='text-muted-foreground/60'>
-                    ↑{promptTokens ? (cacheWriteTokens/promptTokens*100).toFixed(0) : 0}%
+                    ↑
+                    {promptTokens
+                      ? ((cacheWriteTokens / promptTokens) * 100).toFixed(0)
+                      : 0}
+                    %
                   </span>
                 )}
               </div>
@@ -883,7 +874,6 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const [dialogOpen, setDialogOpen] = useState(false)
         const log = row.original
         const other = parseLogOther(log.other)
-
         const segments = buildDetailSegments(log, other, t, isAdmin)
         const primary = segments[0]
         const hasMore = segments.length > 1

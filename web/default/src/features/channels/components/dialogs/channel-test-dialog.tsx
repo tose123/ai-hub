@@ -1174,7 +1174,7 @@ function ChannelTestDialogContent({
         title={t('Delete failed models')}
         desc={t(
           'This removes {{count}} failed models from this channel. This action cannot be undone.',
-              { count: failedModels.length }
+          { count: failedModels.length }
         )}
         destructive
         isLoading={isDeletingFailed}
@@ -1259,7 +1259,7 @@ function TestResultCell({
   if (result.status === 'unsupported') {
     return (
       <div className='flex min-w-0 flex-col gap-1 text-xs'>
-        <StatusBadge label={t('Not available')} variant='warning' copyable={false} />
+        <StatusBadge variant='warning'>{t('Not available')}</StatusBadge>
         {typeof result.responseTime === 'number' && (
           <span className='text-muted-foreground truncate'>
             {formatResponseTime(result.responseTime, t)}

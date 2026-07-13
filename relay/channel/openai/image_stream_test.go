@@ -239,10 +239,10 @@ func TestOpenaiImageStreamHandlerClientDisconnectKeepsRequestedCount(t *testing.
 	require.Nil(t, err)
 	require.NotNil(t, usage)
 	require.NotNil(t, info.StreamStatus)
-	// A client abort surfaces as client_gone (main-loop ctx watch) or
-	// handler_stop (failed client write); both must be treated as untrusted.
+	// Local main may continue reading upstream for usage after the client abort,
+	// in which case this synthetic blocking body ends via the stream timeout.
 	require.Contains(t,
-		[]relaycommon.StreamEndReason{relaycommon.StreamEndReasonClientGone, relaycommon.StreamEndReasonHandlerStop},
+		[]relaycommon.StreamEndReason{relaycommon.StreamEndReasonClientGone, relaycommon.StreamEndReasonHandlerStop, relaycommon.StreamEndReasonTimeout},
 		info.StreamStatus.EndReason)
 	require.Contains(t, recorder.Body.String(), `"b64_json":"first"`)
 	require.Equal(t, 3.0, info.PriceData.OtherRatios()["n"], "client abort must not reduce the billed image count")
@@ -277,7 +277,7 @@ func TestOpenaiImageStreamHandlerClientDisconnectRaisesCount(t *testing.T) {
 	require.NotNil(t, usage)
 	require.NotNil(t, info.StreamStatus)
 	require.Contains(t,
-		[]relaycommon.StreamEndReason{relaycommon.StreamEndReasonClientGone, relaycommon.StreamEndReasonHandlerStop},
+		[]relaycommon.StreamEndReason{relaycommon.StreamEndReasonClientGone, relaycommon.StreamEndReasonHandlerStop, relaycommon.StreamEndReasonTimeout},
 		info.StreamStatus.EndReason)
 	require.Equal(t, 2.0, info.PriceData.OtherRatios()["n"], "completed events beyond the recorded n must raise the charge even on abort")
 }

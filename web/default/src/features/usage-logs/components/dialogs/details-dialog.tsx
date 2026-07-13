@@ -462,12 +462,6 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const details = props.log.content ?? ''
   const other = parseLogOther(props.log.other)
   const typeConfig = getLogTypeConfig(props.log.type)
-  let reasoningEffortVariant: 'orange' | 'yellow' | 'green' = 'green'
-  if (other?.reasoning_effort === 'high') {
-    reasoningEffortVariant = 'orange'
-  } else if (other?.reasoning_effort === 'medium') {
-    reasoningEffortVariant = 'yellow'
-  }
 
   const isViolation = isViolationFeeLog(other)
   const isRefund = props.log.type === 6
@@ -1008,12 +1002,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
           <DetailRow
             label={t('Reasoning Effort')}
             value={
-              <StatusBadge
-                label={other.reasoning_effort}
-                variant={reasoningEffortVariant}
-                size='sm'
-                copyable={false}
-              />
+              <StatusBadge variant={reasoningEffortVariant} size='sm'>
+                {other.reasoning_effort}
+              </StatusBadge>
             }
           />
         )}

@@ -1,3 +1,13 @@
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useQuery } from '@tanstack/react-query'
+import {
+  ChevronDown,
+  GripVertical,
+  KeyRound,
+  Settings2,
+  Trash2,
+  WalletCards,
+} from 'lucide-react'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -18,9 +28,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useForm, type SubmitErrorHandler } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, GripVertical, KeyRound, Settings2, Trash2, WalletCards } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -36,12 +43,12 @@ import {
 } from '@/components/drawer-layout'
 import { MultiSelect } from '@/components/multi-select'
 import { Button } from '@/components/ui/button'
+import { Combobox } from '@/components/ui/combobox'
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-import { Combobox } from '@/components/ui/combobox'
 import {
   Form,
   FormControl,
@@ -69,6 +76,7 @@ import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { cn } from '@/lib/utils'
+
 import { createApiKey, updateApiKey, getApiKey } from '../api'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
@@ -108,7 +116,8 @@ export function ApiKeysMutateDrawer({
   const defaultUseAutoGroup = status?.default_use_auto_group === true
   const userEditedOverrideRef = useRef(false)
   const prevModeRef = useRef<string>('')
-  const [autoGroupsOverrideEdited, setAutoGroupsOverrideEdited] = useState(false)
+  const [autoGroupsOverrideEdited, setAutoGroupsOverrideEdited] =
+    useState(false)
 
   // Fetch models
   const { data: modelsData } = useQuery({
@@ -301,7 +310,7 @@ export function ApiKeysMutateDrawer({
       const basePayload = transformFormDataToPayload(data)
 
       if (data.group === 'auto') {
-        if (!autoGroupsOverrideEdited) basePayload.auto_groups_override = [];
+        if (!autoGroupsOverrideEdited) basePayload.auto_groups_override = []
         const normalized = (data.auto_groups_override || []).filter(Boolean)
         const hasDuplicate = new Set(normalized).size !== normalized.length
         const hasInvalid = normalized.some(
@@ -485,13 +494,17 @@ export function ApiKeysMutateDrawer({
                         .filter((g) => !autoGroupsOverride.includes(g.value))
                         .map((g) => ({
                           value: g.value,
-                          label: <div className='my-2'>
-                            <div className='flex'>
-                              <GroupRatioBadge ratio={g.ratio} />
-                              <div className='ml-2'>{g.value}</div>
+                          label: (
+                            <div className='my-2'>
+                              <div className='flex'>
+                                <GroupRatioBadge ratio={g.ratio} />
+                                <div className='ml-2'>{g.value}</div>
+                              </div>
+                              <span className='text-muted-foreground mt-1 block truncate text-[11px] sm:text-xs'>
+                                {g.desc}
+                              </span>
                             </div>
-                            <span className='mt-1 text-muted-foreground block truncate text-[11px] sm:text-xs'>{g.desc}</span>
-                          </div>,
+                          ),
                         }))
 
                       return (
@@ -545,7 +558,9 @@ export function ApiKeysMutateDrawer({
                                 >
                                   <div className='flex items-center gap-2'>
                                     <GripVertical className='text-muted-foreground size-4' />
-                                    <GroupRatioBadge ratio={group?.ratio || 0} />
+                                    <GroupRatioBadge
+                                      ratio={group?.ratio || 0}
+                                    />
                                     <span className='text-sm'>
                                       {groupValue}
                                     </span>
@@ -713,7 +728,9 @@ export function ApiKeysMutateDrawer({
                           step={tokensOnly ? 1 : 0.01}
                           placeholder={quotaPlaceholder}
                           onChange={(e) =>
-                            field.onChange(Number.parseFloat(e.target.value) || 0)
+                            field.onChange(
+                              Number.parseFloat(e.target.value) || 0
+                            )
                           }
                         />
                       </FormControl>

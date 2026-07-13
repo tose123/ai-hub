@@ -16,8 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useEffect } from 'react'
 import { Gift, Loader2, Receipt, WalletCards } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -534,11 +534,7 @@ export function RechargeFormCard({
               variant='default'
               className='h-9 w-full px-4'
               onClick={() => {
-                window.open(
-                  topupLink,
-                  '_blank',
-                  'noopener,noreferrer',
-                );
+                window.open(topupLink, '_blank', 'noopener,noreferrer')
               }}
             >
               {t('Need a redemption code?')} {t('Get one here')}
