@@ -192,7 +192,7 @@ function PriorityCell({ channel }: { channel: Channel }) {
             setPendingValue(value)
             setConfirmOpen(true)
           }}
-          min={-999}
+          min={-99999999}
         />
         <ConfirmDialog
           open={confirmOpen}
@@ -221,7 +221,7 @@ function PriorityCell({ channel }: { channel: Channel }) {
       onChange={(value) => {
         handleUpdateChannelField(channel.id, 'priority', value, queryClient)
       }}
-      min={-999}
+      min={-99999999}
     />
   )
 }
