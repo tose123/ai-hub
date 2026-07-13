@@ -25,8 +25,6 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { DateTimePicker } from '@/components/datetime-picker'
-import { Button } from '@/components/design-system/button'
-import { Input } from '@/components/design-system/input'
 import {
   SideDrawerSection,
   SideDrawerSectionHeader,
@@ -37,6 +35,7 @@ import {
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
 import { MultiSelect } from '@/components/multi-select'
+import { Button } from '@/components/ui/button'
 import {
   Collapsible,
   CollapsibleContent,
@@ -52,6 +51,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import { Input } from '@/components/ui/input'
 import {
   Sheet,
   SheetClose,
@@ -416,7 +416,9 @@ export function ApiKeysMutateDrawer({
         }
       }}
     >
-      <SheetContent className={sideDrawerContentClassName('sm:max-w-[620px]')}>
+      <SheetContent
+        className={sideDrawerContentClassName('max-w-none sm:!max-w-[620px]')}
+      >
         <SheetHeader className={sideDrawerHeaderClassName()}>
           <SheetTitle>
             {isUpdate ? t('Update API Key') : t('Create API Key')}
@@ -438,6 +440,7 @@ export function ApiKeysMutateDrawer({
                 title={t('Basic Information')}
                 description={t('Set API key basic information')}
                 icon={<KeyRound className='size-4' />}
+                iconTone='info'
               />
               <FormField
                 control={form.control}
@@ -617,6 +620,8 @@ export function ApiKeysMutateDrawer({
                         <Button
                           type='button'
                           variant='outline'
+                          size='sm'
+                          className='px-2 text-xs sm:px-3 sm:text-sm'
                           onClick={() => handleSetExpiry(0, 0, 0)}
                         >
                           {t('Never')}
@@ -624,6 +629,8 @@ export function ApiKeysMutateDrawer({
                         <Button
                           type='button'
                           variant='outline'
+                          size='sm'
+                          className='px-2 text-xs sm:px-3 sm:text-sm'
                           onClick={() => handleSetExpiry(1, 0, 0)}
                         >
                           {t('1 Month')}
@@ -631,6 +638,8 @@ export function ApiKeysMutateDrawer({
                         <Button
                           type='button'
                           variant='outline'
+                          size='sm'
+                          className='px-2 text-xs sm:px-3 sm:text-sm'
                           onClick={() => handleSetExpiry(0, 1, 0)}
                         >
                           {t('1 Day')}
@@ -638,6 +647,8 @@ export function ApiKeysMutateDrawer({
                         <Button
                           type='button'
                           variant='outline'
+                          size='sm'
+                          className='px-2 text-xs sm:px-3 sm:text-sm'
                           onClick={() => handleSetExpiry(0, 0, 1)}
                         >
                           {t('1 Hour')}
@@ -686,6 +697,7 @@ export function ApiKeysMutateDrawer({
                 title={t('Quota Settings')}
                 description={t('Set quota amount and limits')}
                 icon={<WalletCards className='size-4' />}
+                iconTone='success'
               />
               {!unlimitedQuota && (
                 <FormField

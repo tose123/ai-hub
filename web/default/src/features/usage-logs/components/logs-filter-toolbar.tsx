@@ -17,8 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { Table } from '@tanstack/react-table'
-import type { ReactNode } from 'react'
+import { ChevronDown, Loader2 } from 'lucide-react'
+import { useState, type ComponentProps, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 
+import { DataTableViewOptions } from '@/components/data-table'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Drawer,
   DrawerContent,
@@ -53,8 +58,34 @@ interface LogsFilterToolbarProps<TData> {
   className?: string
 }
 
-export const LogsFilterField = DataTableFilterField
-export const LogsFilterInput = DataTableFilterInput
+interface LogsFilterFieldProps {
+  children: ReactNode
+  wide?: boolean
+  className?: string
+}
+
+export function LogsFilterField(props: LogsFilterFieldProps) {
+  return (
+    <div
+      className={cn(
+        'min-w-0 [&_[data-slot=select-trigger]]:w-full [&_[data-slot=select-trigger]]:text-sm [&_[data-slot=select-value]]:leading-5',
+        props.wide && 'sm:col-span-2',
+        props.className
+      )}
+    >
+      {props.children}
+    </div>
+  )
+}
+
+export function LogsFilterInput(props: ComponentProps<typeof Input>) {
+  return (
+    <Input
+      {...props}
+      className={cn('h-8 min-w-0 text-sm leading-5', props.className)}
+    />
+  )
+}
 
 export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
   const { t } = useTranslation()

@@ -20,15 +20,10 @@ import { Code, Plus, Table, Trash2 } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Button } from '@/components/design-system/button'
-import { Input } from '@/components/design-system/input'
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '@/components/design-system/tabs'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
@@ -246,7 +241,8 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
           <Button
             type='button'
             variant='link'
-            className='h-auto p-0 sm:h-auto'
+            size='sm'
+            className='h-auto p-0'
             onClick={handleFillTemplate}
             disabled={props.disabled}
           >
@@ -307,6 +303,7 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
                     size='icon'
                     onClick={() => handleDeleteRow(row.id)}
                     disabled={props.disabled}
+                    className='h-10 w-10'
                     aria-label={t('Delete mapping')}
                   >
                     <Trash2 className='h-4 w-4' aria-hidden='true' />
@@ -324,6 +321,7 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
           <Button
             type='button'
             variant='outline'
+            size='sm'
             onClick={handleAddRow}
             disabled={props.disabled}
             className='w-full'
