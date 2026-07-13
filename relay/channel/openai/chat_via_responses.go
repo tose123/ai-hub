@@ -319,8 +319,8 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, streamErr
 	}
 
-	usage := state.Usage
-	if usage.TotalTokens == 0 && !sawExplicitFinalUsage {
+	usage := state.Usage()
+	if (usage == nil || usage.TotalTokens == 0) && !sawExplicitFinalUsage {
 		usage = service.ResponseText2Usage(c, state.UsageText(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		state.SetUsage(usage)
 	}

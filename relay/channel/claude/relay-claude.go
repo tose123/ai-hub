@@ -12,14 +12,22 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/relayconvert"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+)
+
+const (
+	WebSearchMaxUsesLow    = 1
+	WebSearchMaxUsesMedium = 5
+	WebSearchMaxUsesHigh   = 10
 )
 
 func claudeFileMimeType(fileName string) string {
@@ -736,4 +744,36 @@ func ClaudeHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 		return nil, handleErr
 	}
 	return claudeInfo.Usage, nil
+}
+
+func mapToolChoice(toolChoice any, parallelToolCalls *bool) *dto.ClaudeToolChoice {
+	var claudeToolChoice *dto.ClaudeToolChoice
+
+	if toolChoiceStr, ok := toolChoice.(string); ok {
+		switch toolChoiceStr {
+		case "auto":
+			claudeToolChoice = &dto.ClaudeToolChoice{Type: "auto"}
+		case "required":
+			claudeToolChoice = &dto.ClaudeToolChoice{Type: "any"}
+		case "none":
+			claudeToolChoice = &dto.ClaudeToolChoice{Type: "none"}
+		}
+	} else if toolChoiceMap, ok := toolChoice.(map[string]interface{}); ok {
+		if function, ok := toolChoiceMap["function"].(map[string]interface{}); ok {
+			if toolName, ok := function["name"].(string); ok {
+				claudeToolChoice = &dto.ClaudeToolChoice{Type: "tool", Name: toolName}
+			}
+		}
+	}
+
+	if parallelToolCalls != nil {
+		if claudeToolChoice == nil {
+			claudeToolChoice = &dto.ClaudeToolChoice{Type: "auto"}
+		}
+		if claudeToolChoice.Type != "none" {
+			claudeToolChoice.DisableParallelToolUse = !*parallelToolCalls
+		}
+	}
+
+	return claudeToolChoice
 }

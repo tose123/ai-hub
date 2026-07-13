@@ -90,7 +90,7 @@ func getCandidateAbilities(group string, model string, requestPath string, exclu
 		if err != nil {
 			return nil, err
 		}
-		abilities = filterAbilitiesByRequestPath(abilities, requestPath)
+		abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, targetModel)
 		return filterExcludedAbilities(abilities, excludedChannelIDs), nil
 	}
 
