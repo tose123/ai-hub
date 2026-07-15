@@ -65,7 +65,7 @@ func TestOpenaiHandlerRetriesWhenUsageIsZero(t *testing.T) {
 	require.Nil(t, usage)
 	require.NotNil(t, err)
 	require.Equal(t, types.ErrorCodeBadResponse, err.GetErrorCode())
-	require.Equal(t, http.StatusBadGateway, err.StatusCode)
+	require.Equal(t, http.StatusTooManyRequests, err.StatusCode)
 	require.Empty(t, recorder.Body.String())
 	_, found, cacheErr := cache.Get(cacheKeySuffix)
 	require.NoError(t, cacheErr)
