@@ -43,7 +43,7 @@ func hasValidTextUsage(usage *dto.Usage) bool {
 func newMissingTextUsageRetryableError(c *gin.Context) *types.NewAPIError {
 	service.InvalidateCurrentChannelAffinityCache(c)
 	return types.NewErrorWithStatusCode(
-		errors.New("Upstream returned no valid billing information (zero tokens); retryable"),
+		errors.New("Retryable error; Upstream returned no valid billing information; "),
 		types.ErrorCodeBadResponse,
 		http.StatusBadGateway,
 	)
