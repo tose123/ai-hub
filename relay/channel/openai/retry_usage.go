@@ -43,7 +43,7 @@ func hasValidTextUsage(usage *dto.Usage) bool {
 func newMissingTextUsageRetryableError(c *gin.Context) *types.NewAPIError {
 	service.InvalidateCurrentChannelAffinityCache(c)
 	return types.NewErrorWithStatusCode(
-		errors.New("Retryable error; Upstream returned no valid billing information; "),
+		errors.New("Retryable error | please retry later | try again later | rate limit exceeded | temporarily overloaded | Upstream returned no valid billing information | Selected model is at capacity. Please try a different model."),
 		types.ErrorCodeBadResponse,
 		http.StatusBadGateway,
 	)
