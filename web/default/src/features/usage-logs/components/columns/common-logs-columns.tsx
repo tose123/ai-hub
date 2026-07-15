@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ColumnDef } from '@tanstack/react-table'
-import { CircleAlert, GitBranch, KeyRound, Sparkles } from 'lucide-react'
+import { GitBranch, KeyRound, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -39,7 +39,6 @@ import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import {
   formatTokens,
-  formatUseTime,
   formatLogQuota,
   formatTimestampToDate,
 } from '@/lib/format'
@@ -49,8 +48,6 @@ import { LOG_TYPE_ALL_VALUE } from '../../constants'
 import type { UsageLog } from '../../data/schema'
 import {
   formatModelName,
-  getFirstResponseTimeColor,
-  getResponseTimeColor,
   getTieredBillingSummary,
   hasAnyCacheTokens,
   parseLogOther,
@@ -588,7 +585,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
             <span className='block max-w-full truncate text-xs leading-none'>
               {group ? (
                 <GroupBadge
-                  group={group}
+                  group={group.replace(/×.*$/, '')}
                   label={sensitiveVisible ? undefined : '••••'}
                   type='text'
                   size='sm'
@@ -629,6 +626,29 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       },
       meta: { mobileTitle: true },
     },
+
+    {
+      accessorKey: 'use_time',
+      header: t('Timing'),
+      cell: ({ row }) => {
+        const log = row.original
+        if (!isTimingLogType(log.type)) return null
+
+        const useTime = row.getValue('use_time') as number
+        const other = parseLogOther(log.other)
+
+        return (
+          <TimingMetricsCell
+            useTimeSec={useTime}
+            completionTokens={log.completion_tokens}
+            frtMs={other?.frt}
+            isStream={log.is_stream}
+          />
+        )
+      },
+      maxSize: 120,
+    },
+
     {
       accessorKey: 'is_stream',
       header: t('Stream'),
@@ -637,103 +657,23 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         if (!isTimingLogType(log.type)) return null
 
         const useTime = row.getValue('use_time') as number
-        const other = parseLogOther(log.other)
-        const frt = other?.frt
         const tokensPerSecond =
           useTime > 0 && log.completion_tokens > 0
             ? log.completion_tokens / useTime
             : null
-        const timeVariant = getResponseTimeColor(useTime, log.completion_tokens)
-        const frtVariant = frt
-          ? getFirstResponseTimeColor(frt / 1000)
-          : 'neutral'
 
         return (
-          <div className='flex flex-col gap-1'>
-            <div className='flex items-center gap-1.5'>
-              <StatusBadge
-                variant={timeVariant}
-                size='sm'
-                className='tabular-nums'
-              >
-                {formatUseTime(useTime)}
-              </StatusBadge>
-              {log.is_stream &&
-                (frt != null && frt > 0 ? (
-                  <StatusBadge
-                    variant={frtVariant}
-                    size='sm'
-                    className='tabular-nums'
-                  >
-                    {formatUseTime(frt / 1000)}
-                  </StatusBadge>
-                ) : (
-                  <StatusBadge
-                    variant='neutral'
-                    size='sm'
-                    className='tabular-nums'
-                  >
-                    N/A
-                  </StatusBadge>
-                ))}
-            </div>
-            <div className='flex items-center gap-1 text-xs leading-none'>
-              <span className='text-subtle-foreground text-xs leading-none'>
-                {log.is_stream ? t('Stream') : t('Non-stream')}
-                {tokensPerSecond != null && (
-                  <>
-                    {' · '}
-                    <span className='tabular-nums'>
-                      {Math.round(tokensPerSecond)}
-                    </span>
-                    {' t/s'}
-                  </>
-                )}
-              </span>
-              {other?.client_canceled === true && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={<CircleAlert className='size-3 text-amber-500' />}
-                    />
-                    <TooltipContent>
-                      <span>{t('Client canceled the request')}</span>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-
-              {log.is_stream &&
-                other?.stream_status &&
-                other.stream_status.status !== 'ok' && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={<CircleAlert className='size-3 text-red-500' />}
-                      />
-                      <TooltipContent>
-                        <div className='space-y-0.5 text-xs'>
-                          <p>
-                            {t('Stream Status')}: {t('Error')}
-                          </p>
-                          <p>{other.stream_status.end_reason || 'unknown'}</p>
-                          {(other.stream_status.error_count ?? 0) > 0 && (
-                            <p>
-                              {t('Soft Errors')}:{' '}
-                              {other.stream_status.error_count}
-                            </p>
-                          )}
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
-            </div>
-          </div>
+          <span className='text-muted-foreground text-xs tabular-nums'>
+            {tokensPerSecond != null
+              ? `${Math.round(tokensPerSecond)} t/s`
+              : '—'}
+          </span>
         )
       },
       meta: { label: t('Stream') },
+      maxSize: 80,
     },
+
     {
       accessorKey: 'prompt_tokens',
       header: 'Tokens',
@@ -794,6 +734,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         )
       },
     },
+
     {
       accessorKey: 'quota',
       header: t('Cost'),
@@ -842,27 +783,6 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               <span>{quotaDisplay.amount}</span>
             </span>
           </div>
-        )
-      },
-    },
-
-    {
-      accessorKey: 'use_time',
-      header: t('Timing'),
-      cell: ({ row }) => {
-        const log = row.original
-        if (!isTimingLogType(log.type)) return null
-
-        const useTime = row.getValue('use_time') as number
-        const other = parseLogOther(log.other)
-
-        return (
-          <TimingMetricsCell
-            useTimeSec={useTime}
-            completionTokens={log.completion_tokens}
-            frtMs={other?.frt}
-            isStream={log.is_stream}
-          />
         )
       },
     },
