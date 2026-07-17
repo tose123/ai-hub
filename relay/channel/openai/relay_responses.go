@@ -19,6 +19,27 @@ import (
 
 const responsesCompatMessageItemID = "msg_0"
 
+func recordWebSearchCall(info *relaycommon.RelayInfo) {
+	if info == nil || info.ResponsesUsageInfo == nil || info.ResponsesUsageInfo.BuiltInTools == nil {
+		return
+	}
+
+	webSearchRecorded := false
+	for _, toolType := range []string{dto.BuildInToolWebSearch, dto.BuildInToolWebSearchPreview} {
+		if webSearchTool, exists := info.ResponsesUsageInfo.BuiltInTools[toolType]; exists && webSearchTool != nil {
+			webSearchTool.CallCount++
+			webSearchRecorded = true
+		}
+	}
+	if !webSearchRecorded {
+		info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolWebSearch] = &relaycommon.BuildInToolInfo{
+			ToolName:          dto.BuildInToolWebSearch,
+			CallCount:         1,
+			SearchContextSize: "medium",
+		}
+	}
+}
+
 type responsesCompatTextDeltaEvent struct {
 	Type         string `json:"type"`
 	ItemID       string `json:"item_id"`
@@ -126,7 +147,12 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	}
 	// 解析 Tools 用量
 	for _, tool := range responsesResponse.Tools {
-		buildToolinfo, ok := info.ResponsesUsageInfo.BuiltInTools[common.Interface2String(tool["type"])]
+		toolType := common.Interface2String(tool["type"])
+		if toolType == dto.BuildInToolWebSearch || toolType == dto.BuildInToolWebSearchPreview {
+			recordWebSearchCall(info)
+			continue
+		}
+		buildToolinfo, ok := info.ResponsesUsageInfo.BuiltInTools[toolType]
 		if !ok || buildToolinfo == nil {
 			logger.LogError(c, fmt.Sprintf("BuiltInTools not found for tool type: %v", tool["type"]))
 			continue
@@ -224,14 +250,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			if streamResponse.Item != nil {
 				switch streamResponse.Item.Type {
 				case dto.BuildInCallWebSearchCall:
-					if info != nil && info.ResponsesUsageInfo != nil && info.ResponsesUsageInfo.BuiltInTools != nil {
-						if webSearchTool, exists := info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolWebSearch]; exists && webSearchTool != nil {
-							webSearchTool.CallCount++
-						}
-						if webSearchTool, exists := info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolWebSearchPreview]; exists && webSearchTool != nil {
-							webSearchTool.CallCount++
-						}
-					}
+					recordWebSearchCall(info)
 				case dto.ResponsesOutputTypeImageGenerationCall:
 					if info != nil && info.ResponsesUsageInfo != nil && info.ResponsesUsageInfo.BuiltInTools != nil {
 						if imageGenerationTool, exists := info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolImageGeneration]; exists && imageGenerationTool != nil {

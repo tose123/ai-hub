@@ -71,3 +71,46 @@ func TestOaiResponsesStreamHandlerConvertsChatCompletionChunks(t *testing.T) {
 	require.Contains(t, output, `"output_tokens":95`)
 	require.Contains(t, output, `"cached_tokens":73088`)
 }
+
+func TestOaiResponsesStreamHandlerRecordsDynamicWebSearchCall(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() {
+		constant.StreamingTimeout = oldTimeout
+	})
+
+	body := strings.Join([]string{
+		`data: {"type":"response.output_item.done","item":{"type":"web_search_call"}}`,
+		`data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	webSearchInfo := &relaycommon.RelayInfo{
+		StartTime: time.Unix(1780632412, 0),
+		IsStream:  true,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "gpt-5.4-mini",
+		},
+		ResponsesUsageInfo: &relaycommon.ResponsesUsageInfo{
+			BuiltInTools: map[string]*relaycommon.BuildInToolInfo{},
+		},
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	usage, err := OaiResponsesStreamHandler(c, webSearchInfo, resp)
+
+	require.Nil(t, err)
+	require.Equal(t, 2, usage.TotalTokens)
+	webSearchTool, exists := webSearchInfo.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolWebSearch]
+	require.True(t, exists)
+	require.Equal(t, 1, webSearchTool.CallCount)
+}
