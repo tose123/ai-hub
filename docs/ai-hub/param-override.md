@@ -102,3 +102,37 @@ SET "param_override" = $param_override$
 $param_override$
 WHERE "group" LIKE '%Grok×%';
 ```
+
+## Gemini
+
+- 默认开启 web_search
+
+```sql
+UPDATE "public"."channels"
+SET "param_override" = $param_override$
+{
+  "operations": [
+    {
+      "path": "tools",
+      "mode": "set",
+      "value": [],
+      "keep_origin": true,
+      "conditions": [
+        { "path": "request_path", "mode": "prefix", "value": "/v1beta/models/gemini" }
+      ]
+    },
+    {
+      "path": "tools",
+      "mode": "append",
+      "value": { "googleSearch": {} },
+      "logic": "AND",
+      "conditions": [
+        { "path": "request_path", "mode": "prefix", "value": "/v1beta/models/gemini" },
+        { "path": "tools.#(googleSearch).googleSearch", "mode": "contains", "value": "{", "invert": true, "pass_missing_key": true }
+      ]
+    }
+  ]
+}
+$param_override$
+WHERE "group" LIKE '%Gemini×%';
+```
