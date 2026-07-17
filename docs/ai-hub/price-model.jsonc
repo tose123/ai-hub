@@ -97,12 +97,13 @@
   {
     "image_generation_call": 600,
     "file_search": 2.5,
-    "google_search": 14,
-    "web_search": 7.142857,
-    "web_search_preview": 7.142857,
-    "web_search_preview:gpt-4.1*": 7.142857,
-    "web_search_preview:gpt-4.1-mini*": 7.142857,
-    "web_search_preview:gpt-4o*": 7.142857,
-    "web_search_preview:gpt-4o-mini*": 7.142857
+    "google_search": 14.2857142857,
+    "x_search": 14.2857142857,
+    "web_search": 7.1428571429,
+    "web_search_preview": 7.1428571429,
+    "web_search_preview:gpt-4.1*": 7.1428571429,
+    "web_search_preview:gpt-4.1-mini*": 7.1428571429,
+    "web_search_preview:gpt-4o*": 7.1428571429,
+    "web_search_preview:gpt-4o-mini*": 7.1428571429
   }
 ]
