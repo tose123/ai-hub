@@ -70,7 +70,8 @@ WHERE "group" LIKE '%OpenAI×%';
 
 ## xAI
 
-- 默认开启 web_search, x_search
+- 默认开启 web_search
+- x_search 与 openai(/v1/responses) 兼容性一般
 
 ```sql
 UPDATE "public"."channels"
@@ -94,16 +95,6 @@ SET "param_override" = $param_override$
       "conditions": [
         { "path": "request_path", "mode": "prefix", "value": "/v1/responses" },
         { "path": "tools.#(type==\"web_search\").type", "mode": "full", "value": "web_search", "invert": true, "pass_missing_key": true }
-      ]
-    },
-    {
-      "path": "tools",
-      "mode": "append",
-      "value": { "type": "x_search" },
-      "logic": "AND",
-      "conditions": [
-        { "path": "request_path", "mode": "prefix", "value": "/v1/responses" },
-        { "path": "tools.#(type==\"x_search\").type", "mode": "full", "value": "x_search", "invert": true, "pass_missing_key": true }
       ]
     }
   ]
