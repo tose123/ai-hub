@@ -5,6 +5,7 @@ UPDATE "public"."channels"
 SET "header_override" = $header_override$
 {
   "*": true,
+  "X-OpenAI-Internal-Codex-Responses-Lite": false,
   "User-Agent": "Codex Desktop/0.145.0-alpha.18 (Mac OS 26.5.2; arm64) unknown (Codex Desktop; 26.715.21425)"
 }
 $header_override$
