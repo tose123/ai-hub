@@ -796,7 +796,8 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const other = parseLogOther(log.other)
         const segments = buildDetailSegments(log, other, t, isAdmin)
         const primary = segments[0]
-        const hasMore = segments.length > 1
+        const hasMoreCount =
+          segments.length - 1 + (other?.web_search_call_count || 0)
         let primaryToneClassName = 'text-foreground'
         if (primary?.muted) {
           primaryToneClassName = 'text-muted-foreground/60'
@@ -814,10 +815,10 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                 primaryToneClassName
               )}
             >
-              {primary.text}
-              {hasMore && (
+              {t(primary.text.split(' · ')[0])}
+              {hasMoreCount > 0 && (
                 <span className='text-muted-foreground/40 ml-0.5'>
-                  +{segments.length - 1}
+                  +{hasMoreCount}
                 </span>
               )}
             </span>
@@ -849,7 +850,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           </>
         )
       },
-      size: 180,
+      size: 120,
       maxSize: 200,
     }
   )
