@@ -997,9 +997,15 @@ func (channel *Channel) ValidateSettings() error {
 			return fmt.Errorf("cached_tokens_ratio must be between 0 and 1")
 		}
 	}
-	if channel.Type == constant.ChannelTypeAdvancedCustom && channelOtherSettings.UpstreamModelUpdateCheckEnabled {
-		if _, ok := channelOtherSettings.AdvancedCustom.ModelListRoute(); !ok {
-			return fmt.Errorf("advanced custom channels require a %s route when upstream model update checks are enabled", dto.AdvancedCustomModelListPath)
+	if channel.Type == constant.ChannelTypeAdvancedCustom {
+		channelOtherSettings := channel.GetOtherSettings()
+		if channelOtherSettings.UpstreamModelUpdateCheckEnabled {
+			if channelOtherSettings.AdvancedCustom == nil {
+				return fmt.Errorf("advanced_custom is required")
+			}
+			if _, ok := channelOtherSettings.AdvancedCustom.ModelListRoute(); !ok {
+				return fmt.Errorf("advanced custom channels require a %s route when upstream model update checks are enabled", dto.AdvancedCustomModelListPath)
+			}
 		}
 	}
 	return nil
