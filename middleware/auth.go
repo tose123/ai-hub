@@ -1,10 +1,12 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -231,6 +233,27 @@ func TokenOrUserAuth() func(c *gin.Context) {
 		}
 		// Fall back to token auth (API clients)
 		TokenAuth()(c)
+	}
+}
+
+func AnytoolsAuth() func(c *gin.Context) {
+	token := os.Getenv("ANYTOOLS_AUTH_TOKEN")
+	return func(c *gin.Context) {
+		if token == "" {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"success": false,
+				"message": "anytools authentication is not configured",
+			})
+			return
+		}
+		if subtle.ConstantTimeCompare([]byte(c.GetHeader("X-Anytools-Token")), []byte(token)) != 1 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "invalid anytools authentication token",
+			})
+			return
+		}
+		c.Next()
 	}
 }
 

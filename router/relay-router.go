@@ -71,8 +71,12 @@ func SetRelayRouter(router *gin.Engine) {
 	relayV1Router.Use(middleware.SystemPerformanceCheck())
 	relayV1Router.Use(middleware.TokenAuth())
 	relayV1Router.Use(middleware.ModelRequestRateLimit())
-	relayV1Router.POST("/anytools/get-balance", controller.GetAnytoolsBalance)
-	relayV1Router.POST("/anytools/checkout", controller.CheckoutAnytools)
+	anytoolsRouter := relayV1Router.Group("/anytools")
+	anytoolsRouter.Use(middleware.AnytoolsAuth())
+	{
+		anytoolsRouter.POST("/get-balance", controller.GetAnytoolsBalance)
+		anytoolsRouter.POST("/checkout", controller.CheckoutAnytools)
+	}
 	{
 		// WebSocket 路由（统一到 Relay）
 		wsRouter := relayV1Router.Group("")
