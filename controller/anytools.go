@@ -12,13 +12,13 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-type mcpHubCheckoutRequest struct {
+type anytoolsCheckoutRequest struct {
 	Cost  string `json:"cost"`
 	Info  string `json:"info"`
 	Model string `json:"model"`
 }
 
-func GetMCPHubBalance(c *gin.Context) {
+func GetAnytoolsBalance(c *gin.Context) {
 	if common.QuotaPerUnit <= 0 {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "invalid quota configuration"})
 		return
@@ -45,8 +45,8 @@ func GetMCPHubBalance(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"balance": amount})
 }
 
-func CheckoutMCPHub(c *gin.Context) {
-	var req mcpHubCheckoutRequest
+func CheckoutAnytools(c *gin.Context) {
+	var req anytoolsCheckoutRequest
 	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid request body"})
 		return
@@ -79,12 +79,12 @@ func CheckoutMCPHub(c *gin.Context) {
 	tokenId := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
 	userId := common.GetContextKeyInt(c, constant.ContextKeyUserId)
 	if err := model.DecreaseTokenQuota(tokenId, common.GetContextKeyString(c, constant.ContextKeyTokenKey), quota); err != nil {
-		common.SysLog("MCPHub token checkout failed: " + err.Error())
+		common.SysLog("Anytools token checkout failed: " + err.Error())
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to checkout"})
 		return
 	}
 	if err := model.DecreaseUserQuota(userId, quota, false); err != nil {
-		common.SysLog("MCPHub user checkout failed: " + err.Error())
+		common.SysLog("Anytools user checkout failed: " + err.Error())
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to checkout"})
 		return
 	}

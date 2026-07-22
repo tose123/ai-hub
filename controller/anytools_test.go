@@ -19,7 +19,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func setupMCPHubControllerTestDB(t *testing.T) *gorm.DB {
+func setupAnytoolsControllerTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
 	originalDB := model.DB
@@ -64,7 +64,7 @@ func setupMCPHubControllerTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func newMCPHubControllerTestContext(t *testing.T, path string, body interface{}, userId int, token *model.Token) (*gin.Context, *httptest.ResponseRecorder) {
+func newAnytoolsControllerTestContext(t *testing.T, path string, body interface{}, userId int, token *model.Token) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 
 	var requestBody *bytes.Reader
@@ -80,7 +80,7 @@ func newMCPHubControllerTestContext(t *testing.T, path string, body interface{},
 	ctx.Request = httptest.NewRequest(http.MethodPost, path, requestBody)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 	common.SetContextKey(ctx, constant.ContextKeyUserId, userId)
-	common.SetContextKey(ctx, constant.ContextKeyUserName, "mcphub-user")
+	common.SetContextKey(ctx, constant.ContextKeyUserName, "anytools-user")
 	common.SetContextKey(ctx, constant.ContextKeyTokenId, token.Id)
 	common.SetContextKey(ctx, constant.ContextKeyTokenKey, token.Key)
 	ctx.Set("token_name", token.Name)
@@ -88,8 +88,8 @@ func newMCPHubControllerTestContext(t *testing.T, path string, body interface{},
 	return ctx, recorder
 }
 
-func TestGetMCPHubBalance(t *testing.T) {
-	db := setupMCPHubControllerTestDB(t)
+func TestGetAnytoolsBalance(t *testing.T) {
+	db := setupAnytoolsControllerTestDB(t)
 	tests := []struct {
 		name           string
 		userQuota      int
@@ -104,13 +104,13 @@ func TestGetMCPHubBalance(t *testing.T) {
 
 	for i, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			user := &model.User{Id: i + 1, Username: fmt.Sprintf("mcphub-%d", i), Status: common.UserStatusEnabled, Quota: test.userQuota, AffCode: fmt.Sprintf("mcphub-aff-%d", i)}
-			token := &model.Token{Id: i + 1, UserId: user.Id, Key: fmt.Sprintf("mcphub-key-%d", i), Name: "mcphub-token", Status: common.TokenStatusEnabled, RemainQuota: test.tokenQuota, UnlimitedQuota: test.unlimitedQuota}
+			user := &model.User{Id: i + 1, Username: fmt.Sprintf("anytools-%d", i), Status: common.UserStatusEnabled, Quota: test.userQuota, AffCode: fmt.Sprintf("anytools-aff-%d", i)}
+			token := &model.Token{Id: i + 1, UserId: user.Id, Key: fmt.Sprintf("anytools-key-%d", i), Name: "anytools-token", Status: common.TokenStatusEnabled, RemainQuota: test.tokenQuota, UnlimitedQuota: test.unlimitedQuota}
 			require.NoError(t, db.Create(user).Error)
 			require.NoError(t, db.Create(token).Error)
 
-			ctx, recorder := newMCPHubControllerTestContext(t, "/v1/mcphub/get-balance", nil, user.Id, token)
-			GetMCPHubBalance(ctx)
+			ctx, recorder := newAnytoolsControllerTestContext(t, "/v1/anytools/get-balance", nil, user.Id, token)
+			GetAnytoolsBalance(ctx)
 
 			assert.Equal(t, http.StatusOK, recorder.Code)
 			var response struct {
@@ -122,20 +122,20 @@ func TestGetMCPHubBalance(t *testing.T) {
 	}
 }
 
-func TestCheckoutMCPHub(t *testing.T) {
+func TestCheckoutAnytools(t *testing.T) {
 	t.Run("overdraft updates quota statistics and log", func(t *testing.T) {
-		db := setupMCPHubControllerTestDB(t)
-		user := &model.User{Id: 1, Username: "mcphub-user", Status: common.UserStatusEnabled, Quota: 1, UsedQuota: 10, RequestCount: 2}
-		token := &model.Token{Id: 1, UserId: user.Id, Key: "mcphub-key", Name: "mcphub-token", Status: common.TokenStatusEnabled, RemainQuota: 1, UsedQuota: 20}
+		db := setupAnytoolsControllerTestDB(t)
+		user := &model.User{Id: 1, Username: "anytools-user", Status: common.UserStatusEnabled, Quota: 1, UsedQuota: 10, RequestCount: 2}
+		token := &model.Token{Id: 1, UserId: user.Id, Key: "anytools-key", Name: "anytools-token", Status: common.TokenStatusEnabled, RemainQuota: 1, UsedQuota: 20}
 		require.NoError(t, db.Create(user).Error)
 		require.NoError(t, db.Create(token).Error)
 
-		ctx, recorder := newMCPHubControllerTestContext(t, "/v1/mcphub/checkout", mcpHubCheckoutRequest{
+		ctx, recorder := newAnytoolsControllerTestContext(t, "/v1/anytools/checkout", anytoolsCheckoutRequest{
 			Cost:  "0.000003",
 			Info:  "  billed tool call  ",
 			Model: "  external-model  ",
 		}, user.Id, token)
-		CheckoutMCPHub(ctx)
+		CheckoutAnytools(ctx)
 
 		assert.Equal(t, http.StatusOK, recorder.Code)
 		var response struct {
@@ -166,13 +166,13 @@ func TestCheckoutMCPHub(t *testing.T) {
 	})
 
 	t.Run("validates fields and cost", func(t *testing.T) {
-		db := setupMCPHubControllerTestDB(t)
-		user := &model.User{Id: 1, Username: "mcphub-user", Status: common.UserStatusEnabled, Quota: 100}
-		token := &model.Token{Id: 1, UserId: user.Id, Key: "mcphub-key", Name: "mcphub-token", Status: common.TokenStatusEnabled, RemainQuota: 100}
+		db := setupAnytoolsControllerTestDB(t)
+		user := &model.User{Id: 1, Username: "anytools-user", Status: common.UserStatusEnabled, Quota: 100}
+		token := &model.Token{Id: 1, UserId: user.Id, Key: "anytools-key", Name: "anytools-token", Status: common.TokenStatusEnabled, RemainQuota: 100}
 		require.NoError(t, db.Create(user).Error)
 		require.NoError(t, db.Create(token).Error)
 
-		tests := []mcpHubCheckoutRequest{
+		tests := []anytoolsCheckoutRequest{
 			{Cost: "", Info: "info", Model: "model"},
 			{Cost: "1", Info: " ", Model: "model"},
 			{Cost: "1", Info: "info", Model: " "},
@@ -183,8 +183,8 @@ func TestCheckoutMCPHub(t *testing.T) {
 			{Cost: "100000000000000000000", Info: "info", Model: "model"},
 		}
 		for _, test := range tests {
-			ctx, recorder := newMCPHubControllerTestContext(t, "/v1/mcphub/checkout", test, user.Id, token)
-			CheckoutMCPHub(ctx)
+			ctx, recorder := newAnytoolsControllerTestContext(t, "/v1/anytools/checkout", test, user.Id, token)
+			CheckoutAnytools(ctx)
 			assert.Equal(t, http.StatusBadRequest, recorder.Code, "request: %+v", test)
 		}
 
