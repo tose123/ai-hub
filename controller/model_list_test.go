@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -140,6 +141,17 @@ func withSelfUseModeEnabled(t *testing.T) {
 	operation_setting.SelfUseModeEnabled = true
 	t.Cleanup(func() {
 		operation_setting.SelfUseModeEnabled = original
+	})
+}
+
+func withGlobalModelMapping(t *testing.T, mapping map[string]string) {
+	t.Helper()
+
+	settings := model_setting.GetGlobalSettings()
+	originalMapping := settings.ModelMapping
+	settings.ModelMapping = mapping
+	t.Cleanup(func() {
+		settings.ModelMapping = originalMapping
 	})
 }
 
@@ -529,6 +541,36 @@ func TestListModelsIncludesTokenModelMappingAlias(t *testing.T) {
 	require.Contains(t, ids, "my-gpt")
 }
 
+func TestListModelsIncludesNormalizedGlobalAliasOnce(t *testing.T) {
+	withSelfUseModeEnabled(t)
+	withGlobalModelMapping(t, map[string]string{
+		"my-opus":     "claude-opus-4-7-xhigh",
+		"broad-alias": "claude-opus",
+	})
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
+		"claude-opus-4-7": true,
+		"my-opus":         true,
+	})
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	payload := decodeListModelsPayload(t, recorder)
+	aliasCount := 0
+	for _, item := range payload.Data {
+		if item.Id == "my-opus" {
+			aliasCount++
+		}
+	}
+	require.Equal(t, 1, aliasCount)
+	ids := decodeListModelsResponse(t, recorder)
+	require.NotContains(t, ids, "broad-alias")
+}
+
 func TestListModelsDeduplicatesTokenModelMappingAlias(t *testing.T) {
 	withSelfUseModeDisabled(t)
 	withTieredBillingConfig(t, map[string]string{
@@ -579,6 +621,29 @@ func TestRetrieveModelSupportsTokenModelMappingAlias(t *testing.T) {
 	var payload dto.OpenAIModels
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
 	require.Equal(t, "my-gpt", payload.Id)
+}
+
+func TestRetrieveModelSupportsGlobalModelMappingAlias(t *testing.T) {
+	withGlobalModelMapping(t, map[string]string{
+		"my-opus": "claude-opus-4-7-xhigh",
+	})
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "model", Value: "my-opus"}}
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models/my-opus", nil)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
+		"claude-opus-4-7": true,
+	})
+
+	RetrieveModel(ctx, constant.ChannelTypeOpenAI)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var payload dto.OpenAIModels
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.Equal(t, "my-opus", payload.Id)
+	require.Equal(t, model.GetModelSupportEndpointTypes("claude-opus-4-7"), payload.SupportedEndpointTypes)
 }
 
 func TestRetrieveModelReturnsNotFoundWhenAliasTargetUnavailable(t *testing.T) {

@@ -1,0 +1,15 @@
+[
+  // 全局
+  {
+    "gpt-l": "gpt-5.6-sol",
+    "gpt-m": "gpt-5.6-terra",
+    "gpt-s": "gpt-5.6-luna",
+    "claude-l": "claude-opus-4-8",
+    "claude-m": "claude-sonnet-5",
+    "claude-s": "claude-haiku-4-5",
+  },
+  // Claude 渠道常用
+  {
+    "claude-haiku-4-5": "claude-haiku-4-5-20251001"
+  },
+]

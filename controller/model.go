@@ -209,17 +209,7 @@ func resolveModelMappingChain(modelMap map[string]string, modelName string) (str
 	}
 }
 
-func getTokenMappedModelAliases(c *gin.Context, visibleModels []string) (map[string]string, []string, error) {
-	modelMapping := common.GetContextKeyString(c, constant.ContextKeyTokenModelMapping)
-	if modelMapping == "" || modelMapping == "{}" {
-		return map[string]string{}, nil, nil
-	}
-
-	modelMap := make(map[string]string)
-	if err := common.UnmarshalJsonStr(modelMapping, &modelMap); err != nil {
-		return nil, nil, err
-	}
-
+func getMappedModelTargets(modelMap map[string]string, visibleModels []string) (map[string]string, error) {
 	visibleSet := make(map[string]struct{}, len(visibleModels))
 	for _, modelName := range visibleModels {
 		trimmed := strings.TrimSpace(modelName)
@@ -230,7 +220,6 @@ func getTokenMappedModelAliases(c *gin.Context, visibleModels []string) (map[str
 	}
 
 	aliasTargets := make(map[string]string)
-	aliases := make([]string, 0)
 	for alias := range modelMap {
 		alias = strings.TrimSpace(alias)
 		if alias == "" {
@@ -238,16 +227,51 @@ func getTokenMappedModelAliases(c *gin.Context, visibleModels []string) (map[str
 		}
 		resolvedTarget, ok := resolveModelMappingChain(modelMap, alias)
 		if !ok {
-			return nil, nil, fmt.Errorf("token_model_mapping_contains_cycle")
+			return nil, fmt.Errorf("model_mapping_contains_cycle")
 		}
-		resolvedTarget = model_setting.BaseModelForMatching(resolvedTarget)
-		if _, exists := visibleSet[resolvedTarget]; !exists {
+		visibleTarget := model_setting.BaseModelForMatching(resolvedTarget)
+		if _, exists := visibleSet[visibleTarget]; !exists {
 			continue
 		}
 		aliasTargets[alias] = resolvedTarget
-		aliases = append(aliases, alias)
+	}
+	return aliasTargets, nil
+}
+
+func getMappedModelAliases(c *gin.Context, visibleModels []string) (map[string]string, []string, error) {
+	globalTargets, err := getMappedModelTargets(model_setting.GetGlobalSettings().ModelMapping, visibleModels)
+	if err != nil {
+		return nil, nil, err
 	}
 
+	tokenTargets := map[string]string{}
+	modelMapping := common.GetContextKeyString(c, constant.ContextKeyTokenModelMapping)
+	if modelMapping != "" && modelMapping != "{}" {
+		modelMap := make(map[string]string)
+		if err := common.UnmarshalJsonStr(modelMapping, &modelMap); err != nil {
+			return nil, nil, err
+		}
+		tokenTargets, err = getMappedModelTargets(modelMap, visibleModels)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	aliasTargets := make(map[string]string, len(globalTargets)+len(tokenTargets))
+	for alias, target := range tokenTargets {
+		aliasTargets[alias] = model_setting.BaseModelForMatching(target)
+	}
+	for alias, target := range globalTargets {
+		if tokenTarget, ok := tokenTargets[target]; ok {
+			target = tokenTarget
+		}
+		aliasTargets[alias] = model_setting.BaseModelForMatching(target)
+	}
+
+	aliases := make([]string, 0, len(aliasTargets))
+	for alias := range aliasTargets {
+		aliases = append(aliases, alias)
+	}
 	sort.Strings(aliases)
 	return aliasTargets, aliases, nil
 }
@@ -413,7 +437,7 @@ func ListModels(c *gin.Context, modelType int) {
 	}
 	ownerGroups := groups.ownerGroups
 
-	aliasTargets, aliases, err := getTokenMappedModelAliases(c, userModelNames)
+	aliasTargets, aliases, err := getMappedModelAliases(c, userModelNames)
 	if err != nil {
 		abortWithModelMappingError(c)
 		return
@@ -505,7 +529,7 @@ func RetrieveModel(c *gin.Context, modelType int) {
 		})
 		return
 	}
-	aliasTargets, _, err := getTokenMappedModelAliases(c, visibleModels)
+	aliasTargets, _, err := getMappedModelAliases(c, visibleModels)
 	if err != nil {
 		abortWithModelMappingError(c)
 		return

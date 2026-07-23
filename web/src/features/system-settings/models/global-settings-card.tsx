@@ -49,6 +49,12 @@ import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 
+const globalModelMappingExample = JSON.stringify(
+  { 'alias-model': 'upstream-model' },
+  null,
+  2
+)
+
 const thinkingBlacklistExample = JSON.stringify(
   ['moonshotai/kimi-k2-thinking', 'kimi-k2-thinking'],
   null,
@@ -87,9 +93,26 @@ const jsonString = z.string().refine((value) => {
   }
 }, 'Invalid JSON format')
 
+const modelMappingString = z.string().refine((value) => {
+  const trimmed = value.trim()
+  if (!trimmed) return true
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    return (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      Object.values(parsed).every((target) => typeof target === 'string')
+    )
+  } catch {
+    return false
+  }
+}, 'Invalid model mapping format')
+
 const schema = z.object({
   global: z.object({
     pass_through_request_enabled: z.boolean(),
+    model_mapping: modelMappingString,
     thinking_model_blacklist: jsonString,
     chat_completions_to_responses_policy: jsonString,
   }),
@@ -104,6 +127,7 @@ type GlobalModelSettingsFormInput = z.input<typeof schema>
 
 type FlatGlobalModelSettings = {
   'global.pass_through_request_enabled': boolean
+  'global.model_mapping': string
   'global.thinking_model_blacklist': string
   'global.chat_completions_to_responses_policy': string
   'general_setting.ping_interval_enabled': boolean
@@ -115,6 +139,7 @@ const flattenGlobalValues = (
 ): FlatGlobalModelSettings => ({
   'global.pass_through_request_enabled':
     values.global.pass_through_request_enabled,
+  'global.model_mapping': normalizeJsonText(values.global.model_mapping, '{}'),
   'global.thinking_model_blacklist': normalizeJsonText(
     values.global.thinking_model_blacklist,
     '[]'
@@ -159,6 +184,7 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
 
   const formatJsonField = (
     field:
+      | 'global.model_mapping'
       | 'global.thinking_model_blacklist'
       | 'global.chat_completions_to_responses_policy'
   ) => {
@@ -221,6 +247,40 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                   />
                 </FormControl>
               </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='global.model_mapping'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Global Model Mapping')}</FormLabel>
+                <FormControl>
+                  <Textarea
+                    rows={6}
+                    placeholder={`${t('Example:')}\n${globalModelMappingExample}`}
+                    {...field}
+                    onChange={(event) => field.onChange(event.target.value)}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Map public model aliases to upstream models before token model mappings are applied.'
+                  )}
+                </FormDescription>
+                <div className='flex flex-wrap gap-2'>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => formatJsonField('global.model_mapping')}
+                  >
+                    {t('Format JSON')}
+                  </Button>
+                </div>
+                <FormMessage />
+              </FormItem>
             )}
           />
 

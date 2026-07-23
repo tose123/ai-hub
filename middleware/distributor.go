@@ -40,7 +40,7 @@ func Distribute() func(c *gin.Context) {
 			return
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestModel, modelRequest.Model)
-		routedModel, baseModel, err := resolveTokenRoutedModel(c, modelRequest.Model)
+		routedModel, baseModel, err := resolveRoutedModel(c, modelRequest.Model)
 		if err != nil {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, "Invalid model mapping format"))
 			return
@@ -178,8 +178,12 @@ func Distribute() func(c *gin.Context) {
 	}
 }
 
-func resolveTokenRoutedModel(c *gin.Context, requestModel string) (string, string, error) {
-	routedModel, err := applyTokenModelMapping(c, requestModel)
+func resolveRoutedModel(c *gin.Context, requestModel string) (string, string, error) {
+	globalMappedModel, err := applyModelMapping(c, requestModel, model_setting.GetGlobalSettings().ModelMapping)
+	if err != nil {
+		return "", "", err
+	}
+	routedModel, err := applyTokenModelMapping(c, globalMappedModel)
 	if err != nil {
 		return "", "", err
 	}
@@ -192,15 +196,22 @@ func applyTokenModelMapping(c *gin.Context, requestModel string) (string, error)
 		return requestModel, nil
 	}
 
+	modelMap := make(map[string]string)
+	if err := common.UnmarshalJsonStr(modelMapping, &modelMap); err != nil {
+		return "", err
+	}
+	return applyModelMapping(c, requestModel, modelMap)
+}
+
+func applyModelMapping(c *gin.Context, requestModel string, modelMap map[string]string) (string, error) {
+	if requestModel == "" || len(modelMap) == 0 {
+		return requestModel, nil
+	}
+
 	mappingModelName := requestModel
 	isResponsesCompact := strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact")
 	if isResponsesCompact && strings.HasSuffix(requestModel, ratio_setting.CompactModelSuffix) {
 		mappingModelName = strings.TrimSuffix(requestModel, ratio_setting.CompactModelSuffix)
-	}
-
-	modelMap := make(map[string]string)
-	if err := common.UnmarshalJsonStr(modelMapping, &modelMap); err != nil {
-		return "", err
 	}
 
 	currentModel := mappingModelName
@@ -216,7 +227,7 @@ func applyTokenModelMapping(c *gin.Context, requestModel string) (string, error)
 			if mappedModel == currentModel {
 				break
 			}
-			return "", fmt.Errorf("token_model_mapping_contains_cycle")
+			return "", fmt.Errorf("model_mapping_contains_cycle")
 		}
 		visitedModels[mappedModel] = true
 		currentModel = mappedModel

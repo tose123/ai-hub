@@ -140,6 +140,16 @@ func UpdateOption(c *gin.Context) {
 	default:
 		option.Value = fmt.Sprintf("%v", option.Value)
 	}
+	if option.Key == "global.model_mapping" {
+		modelMapping := make(map[string]string)
+		if err := common.UnmarshalJsonStr(option.Value.(string), &modelMapping); err != nil || modelMapping == nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Invalid model mapping format",
+			})
+			return
+		}
+	}
 	switch option.Key {
 	case "QuotaForInviter", "QuotaForInvitee":
 		if isPositiveOptionValue(option.Value.(string)) && !operation_setting.IsPaymentComplianceConfirmed() {

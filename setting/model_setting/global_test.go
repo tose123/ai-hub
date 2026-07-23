@@ -1,6 +1,12 @@
 package model_setting
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func TestBaseModelForMatching(t *testing.T) {
 	tests := []struct {
@@ -22,4 +28,19 @@ func TestBaseModelForMatching(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGlobalModelMappingCanBeCleared(t *testing.T) {
+	originalMapping := globalSettings.ModelMapping
+	globalSettings.ModelMapping = map[string]string{
+		"alias-model": "upstream-model",
+	}
+	t.Cleanup(func() {
+		globalSettings.ModelMapping = originalMapping
+	})
+
+	require.NoError(t, config.UpdateConfigFromMap(&globalSettings, map[string]string{
+		"model_mapping": "{}",
+	}))
+	assert.Empty(t, globalSettings.ModelMapping)
 }
