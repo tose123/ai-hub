@@ -55,13 +55,13 @@ Rules:
 - If this fails with duplicate package keys, `InvalidPackageKey`, `failed to parse lockfile`, or `lockfile had changes, but lockfile is frozen`, stop before tagging.
 - Recovery is: run `(cd web && bun install)`, inspect `git diff -- web/bun.lock`, confirm the diff is only lockfile normalization/removal of duplicate or stale entries, then re-run `(cd web && bun install --frozen-lockfile)`.
 - If `bun install` changes files, commit those changes first. Do not tag uncommitted lockfile changes.
-- If Docker publish recently failed at `Dockerfile` `RUN bun install --frozen-lockfile`, or if `web/bun.lock` changed in the release commit, prefer the stronger local check:
+- If Docker publish recently failed, or if `Dockerfile`, `web/package.json`, or `web/bun.lock` changed in the release commit, prefer the complete builder check:
 
 ```bash
-docker build --target builder --progress=plain -t ai-hub-release-check .
+docker build --target builder2 --progress=plain -t ai-hub-release-check .
 ```
 
-This mirrors the Docker builder path and catches Bun-version-sensitive lockfile issues before the release tag triggers CI.
+This mirrors the complete Docker builder path and catches frontend path, Bun lockfile, Go embed, and backend build issues before the release tag triggers CI.
 
 ### 3. Generate the tag
 

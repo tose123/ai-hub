@@ -122,8 +122,7 @@ git log --oneline --no-merges "$LOCAL_BEFORE"..HEAD
 Summarize main updates by product area, not by raw file list:
 
 - Backend: Go modules and changes under `controller/`, `service/`, `model/`, `relay/`, `middleware/`, `setting/`, `common/`, `dto/`, `constant/`, `i18n/`, `oauth/`, `pkg/`, `router/`.
-- Frontend default UI: changes under `web/default/`, especially `src/`, `package.json`, `bun.lock`, `rsbuild.config.*`, Tailwind/CSS, i18n locale files.
-- Frontend classic UI: changes under `web/classic/`.
+- Frontend UI: changes under `web/`, especially `src/`, `package.json`, `bun.lock`, `rsbuild.config.*`, Tailwind/CSS, i18n locale files.
 - Deployment/config/docs: Docker, compose, scripts, config examples, CI, docs, migrations.
 
 When building the update summary, inspect representative diffs for important files instead of inferring only from filenames:
@@ -140,7 +139,7 @@ Derive testing focus from the changed areas. Prefer concrete checks such as:
 - Billing/quota/model pricing changed: test pre-consume, settlement, log display, zero/false optional request values, and group/model ratio cases.
 - DB/model/migration changed: test SQLite, MySQL, and PostgreSQL migration/startup paths where feasible.
 - Auth/middleware/rate-limit changed: test login/token/OAuth/passkey or limit behavior as applicable.
-- Frontend UI changed: build `web/default`, open affected pages, test create/edit/delete flows, loading/error states, and responsive layout.
+- Frontend UI changed: build `web/`, open affected pages, test create/edit/delete flows, loading/error states, and responsive layout.
 - i18n changed: run or inspect i18n sync and test language switching for touched screens.
 - Config/deployment changed: test fresh config defaults and upgraded existing config.
 
@@ -149,17 +148,17 @@ Derive testing focus from the changed areas. Prefer concrete checks such as:
 Run focused checks based on the files changed by the merge. Do not report the sync as complete until the required checks are clean or a concrete blocker is reported:
 
 - Go backend changes: `go test ./...`
-- Default frontend changes: from `web/default/`, use Bun. Always run both `bun run typecheck` and `bun run build`; a successful Rsbuild build is not sufficient because it can miss TypeScript duplicate declarations, missing imports, and invalid lazy route chunks. `bun run typecheck` must be clean, not merely grepped for known errors.
-- i18n-only frontend changes: from `web/default/`, run `bun run i18n:sync` when keys or locale files changed
+- Frontend changes: from `web/`, use Bun. Always run both `bun run typecheck` and `bun run build`; a successful Rsbuild build is not sufficient because it can miss TypeScript duplicate declarations, missing imports, and invalid lazy route chunks. `bun run typecheck` must be clean, not merely grepped for known errors.
+- i18n-only frontend changes: from `web/`, run `bun run i18n:sync` when keys or locale files changed
 
-For any merge that changes `web/default/src/`, also run targeted lint on changed source files before reporting success:
+For any merge that changes `web/src/`, also run targeted lint on changed source files before reporting success:
 
 ```bash
 {
-  git diff --name-only "$LOCAL_BEFORE"..HEAD -- 'web/default/src/**/*.ts' 'web/default/src/**/*.tsx'
-  git diff --name-only -- 'web/default/src/**/*.ts' 'web/default/src/**/*.tsx'
-} | sort -u | sed 's#^web/default/##' > /tmp/newapi-main-sync-src-files.txt
-test ! -s /tmp/newapi-main-sync-src-files.txt || (cd web/default && xargs bunx oxlint -c .oxlintrc.json < /tmp/newapi-main-sync-src-files.txt)
+  git diff --name-only "$LOCAL_BEFORE"..HEAD -- 'web/src/**/*.ts' 'web/src/**/*.tsx'
+  git diff --name-only -- 'web/src/**/*.ts' 'web/src/**/*.tsx'
+} | sort -u | sed 's#^web/##' > /tmp/newapi-main-sync-src-files.txt
+test ! -s /tmp/newapi-main-sync-src-files.txt || (cd web && xargs bunx oxlint -c .oxlintrc.json < /tmp/newapi-main-sync-src-files.txt)
 ```
 
 If targeted lint reports duplicate imports, missing imports/exports, unused imports/state, hook dependency issues, non-null assertions, nested ternaries, or impossible `ReactNode`/value types in changed files, fix them before reporting success. Do not dismiss these as style-only during a sync; they are common signs of partial conflict resolution.
@@ -167,10 +166,10 @@ If targeted lint reports duplicate imports, missing imports/exports, unused impo
 Also run a frontend merge-residue audit:
 
 ```bash
-cd web/default
+cd web
 bun run typecheck 2>&1 | tee /tmp/newapi-main-sync-typecheck.txt
-cd ../..
-rg -n '^(<<<<<<<|=======|>>>>>>>)' web/default/src
+cd ..
+rg -n '^(<<<<<<<|=======|>>>>>>>)' web/src
 rg -n "Identifier '.+' has already been declared|Duplicate identifier|Cannot find name|Cannot find module|has no exported member" /tmp/newapi-main-sync-typecheck.txt
 ```
 
@@ -189,6 +188,7 @@ When a changed frontend file is a route, drawer, dialog, table column file, edit
 When large frontend modules, route files, drawers, table columns, or lazily loaded pages changed, perform a dev-server smoke check after `typecheck` and `build` pass:
 
 ```bash
+cd web
 bun run dev
 curl -I http://127.0.0.1:3001/
 curl -s http://127.0.0.1:3001/static/js/index.js | rg '<changed-symbol-or-component>'
