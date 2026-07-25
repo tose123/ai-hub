@@ -561,6 +561,7 @@ type ResponsesBufferedAccumulator struct {
 	itemIDToToolIdx      map[string]int
 	pendingByOutputIndex map[int]string
 	pendingByItemID      map[string]string
+	annotationsByOutput  map[int]map[int][]interface{}
 }
 
 type responsesBufferedTool struct {
@@ -576,6 +577,7 @@ func NewResponsesBufferedAccumulator() *ResponsesBufferedAccumulator {
 		itemIDToToolIdx:      make(map[string]int),
 		pendingByOutputIndex: make(map[int]string),
 		pendingByItemID:      make(map[string]string),
+		annotationsByOutput:  make(map[int]map[int][]interface{}),
 	}
 }
 
@@ -586,6 +588,18 @@ func (a *ResponsesBufferedAccumulator) ProcessEvent(event *dto.ResponsesStreamRe
 	switch event.Type {
 	case responsesEventOutputTextDelta:
 		a.text.WriteString(event.Delta)
+	case responsesEventContentPartDone:
+		if event.OutputIndex == nil || event.ContentIndex == nil || event.Part == nil || event.Part.Type != "output_text" {
+			return
+		}
+		annotations := event.Part.Annotations
+		if annotations == nil {
+			annotations = []interface{}{}
+		}
+		if a.annotationsByOutput[*event.OutputIndex] == nil {
+			a.annotationsByOutput[*event.OutputIndex] = make(map[int][]interface{})
+		}
+		a.annotationsByOutput[*event.OutputIndex][*event.ContentIndex] = annotations
 	case responsesEventReasoningSummaryDelta, responsesEventReasoningTextDelta:
 		a.reasoning.WriteString(event.Delta)
 	case responsesEventOutputItemAdded, responsesEventOutputItemDone:
@@ -610,10 +624,29 @@ func (a *ResponsesBufferedAccumulator) ProcessEvent(event *dto.ResponsesStreamRe
 }
 
 func (a *ResponsesBufferedAccumulator) SupplementResponseOutput(resp *dto.OpenAIResponsesResponse) {
-	if a == nil || resp == nil || len(resp.Output) > 0 {
+	if a == nil || resp == nil {
 		return
 	}
-	resp.Output = a.BuildOutput()
+	if len(resp.Output) == 0 {
+		resp.Output = a.BuildOutput()
+	}
+	for outputIndex := range resp.Output {
+		for contentIndex := range resp.Output[outputIndex].Content {
+			content := &resp.Output[outputIndex].Content[contentIndex]
+			if content.Type != "output_text" {
+				continue
+			}
+			if content.Annotations == nil {
+				content.Annotations = a.annotationsByOutput[outputIndex][contentIndex]
+				if content.Annotations == nil {
+					content.Annotations = []interface{}{}
+				}
+			}
+			if content.Logprobs == nil {
+				content.Logprobs = []interface{}{}
+			}
+		}
+	}
 }
 
 func (a *ResponsesBufferedAccumulator) BuildOutput() []dto.ResponsesOutput {

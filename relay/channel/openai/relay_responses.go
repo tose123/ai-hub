@@ -24,19 +24,16 @@ func recordWebSearchCall(info *relaycommon.RelayInfo) {
 		return
 	}
 
-	webSearchRecorded := false
 	for _, toolType := range []string{dto.BuildInToolWebSearch, dto.BuildInToolWebSearchPreview} {
 		if webSearchTool, exists := info.ResponsesUsageInfo.BuiltInTools[toolType]; exists && webSearchTool != nil {
 			webSearchTool.CallCount++
-			webSearchRecorded = true
+			return
 		}
 	}
-	if !webSearchRecorded {
-		info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolWebSearch] = &relaycommon.BuildInToolInfo{
-			ToolName:          dto.BuildInToolWebSearch,
-			CallCount:         1,
-			SearchContextSize: "medium",
-		}
+	info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolWebSearch] = &relaycommon.BuildInToolInfo{
+		ToolName:          dto.BuildInToolWebSearch,
+		CallCount:         1,
+		SearchContextSize: "medium",
 	}
 }
 
@@ -145,11 +142,15 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	if info == nil || info.ResponsesUsageInfo == nil || info.ResponsesUsageInfo.BuiltInTools == nil {
 		return &usage, nil
 	}
+	for _, output := range responsesResponse.Output {
+		if output.Type == dto.BuildInCallWebSearchCall {
+			recordWebSearchCall(info)
+		}
+	}
 	// 解析 Tools 用量
 	for _, tool := range responsesResponse.Tools {
 		toolType := common.Interface2String(tool["type"])
 		if toolType == dto.BuildInToolWebSearch || toolType == dto.BuildInToolWebSearchPreview {
-			recordWebSearchCall(info)
 			continue
 		}
 		buildToolinfo, ok := info.ResponsesUsageInfo.BuiltInTools[toolType]

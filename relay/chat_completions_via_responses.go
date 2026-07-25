@@ -111,6 +111,11 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 
 	info.RelayMode = relayconstant.RelayModeResponses
 	info.RequestURLPath = "/v1/responses"
+	forceUpstreamStream := info.ShouldForceUpstreamStream()
+	if forceUpstreamStream {
+		responsesReq.Stream = common.GetPointer(true)
+		info.UpstreamIsStream = true
+	}
 
 	convertedRequest, err := adaptor.ConvertOpenAIResponsesRequest(c, info, *responsesReq)
 	if err != nil {
@@ -126,6 +131,13 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings, info.ChannelSetting.PassThroughBodyEnabled)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+	}
+	// Forced streaming has final precedence over disabled fields.
+	if forceUpstreamStream {
+		jsonData, err = setUpstreamStream(jsonData)
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+		}
 	}
 
 	body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)

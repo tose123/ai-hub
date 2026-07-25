@@ -40,6 +40,11 @@ func getScannerBufferSize() int {
 	return DefaultMaxScannerBufferSize
 }
 
+// StreamScannerMaxBufferSize returns the configured SSE line and buffered-response limit.
+func StreamScannerMaxBufferSize() int {
+	return getScannerBufferSize()
+}
+
 func NewStreamScanner(reader io.Reader) *bufio.Scanner {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, InitialScannerBufferSize), getScannerBufferSize())
@@ -86,6 +91,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	ctx, cancel := context.WithCancel(context.Background())
 
 	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
+	if streamingTimeout <= 0 {
+		streamingTimeout = time.Minute
+	}
 
 	var (
 		stopChan    = make(chan bool, 3) // 增加缓冲区避免阻塞
@@ -141,8 +149,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	defer cleanup()
 
 	scanner.Split(bufio.ScanLines)
-	copyCodexSSEHeaders(c, resp)
-	SetEventStreamHeaders(c)
+	if info.IsStream {
+		copyCodexSSEHeaders(c, resp)
+		SetEventStreamHeaders(c)
+	}
 
 	ctx = context.WithValue(ctx, "stop_chan", stopChan)
 
@@ -227,7 +237,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			func() {
 				writeMutex.Lock()
 				defer writeMutex.Unlock()
-				ExtendWriteDeadline(c)
+				if info.IsStream {
+					ExtendWriteDeadline(c)
+				}
 				dataHandler(data, sr)
 			}()
 			if sr.IsStopped() {

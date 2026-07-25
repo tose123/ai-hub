@@ -20,7 +20,12 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/sjson"
 )
+
+func setUpstreamStream(jsonData []byte) ([]byte, error) {
+	return sjson.SetBytes(jsonData, "stream", true)
+}
 
 func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
 	info.InitChannelMeta(c)
@@ -33,6 +38,11 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	request, err := common.DeepCopy(textReq)
 	if err != nil {
 		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+	forceUpstreamStream := info.ShouldForceUpstreamStream()
+	if forceUpstreamStream {
+		request.Stream = common.GetPointer(true)
+		info.UpstreamIsStream = true
 	}
 
 	if request.WebSearchOptions != nil {
@@ -60,6 +70,10 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 				IncludeUsage: true,
 			}
 		}
+	}
+	if forceUpstreamStream && info.SupportStreamOptions {
+		// Forced upstream streaming still needs exact usage for the buffered non-stream response.
+		request.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
 	}
 
 	info.ShouldIncludeUsage = includeUsage
@@ -104,7 +118,25 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 				logger.LogDebug(c, "requestBody: %s", debugBytes)
 			}
 		}
-		requestBody = common.ReaderOnly(storage)
+		if forceUpstreamStream {
+			jsonData, err := storage.Bytes()
+			if err != nil {
+				return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}
+			jsonData, err = setUpstreamStream(jsonData)
+			if err != nil {
+				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+			}
+			body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
+			if err != nil {
+				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+			}
+			defer closer.Close()
+			info.UpstreamRequestBodySize = size
+			requestBody = body
+		} else {
+			requestBody = common.ReaderOnly(storage)
+		}
 	} else {
 		convertedRequest, err := adaptor.ConvertOpenAIRequest(c, info, request)
 		if err != nil {
@@ -172,6 +204,13 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 				return newAPIErrorFromParamOverride(err)
 			}
 		}
+		// Forced streaming has final precedence over disabled fields and channel parameter overrides.
+		if forceUpstreamStream {
+			jsonData, err = setUpstreamStream(jsonData)
+			if err != nil {
+				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+			}
+		}
 
 		logger.LogDebug(c, "text request body: %s", jsonData)
 
@@ -195,7 +234,11 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 
 	if resp != nil {
 		httpResp = resp.(*http.Response)
-		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
+		upstreamReturnedStream := strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
+		info.UpstreamIsStream = info.UpstreamIsStream || upstreamReturnedStream
+		if upstreamReturnedStream && !forceUpstreamStream {
+			info.IsStream = true
+		}
 		if httpResp.StatusCode != http.StatusOK {
 			newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 			// reset status code 重置状态码

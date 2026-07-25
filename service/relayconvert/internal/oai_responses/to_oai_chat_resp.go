@@ -17,6 +17,7 @@ const (
 	responsesEventFailed                   = "response.failed"
 	responsesEventError                    = "response.error"
 	responsesEventOutputTextDelta          = "response.output_text.delta"
+	responsesEventContentPartDone          = "response.content_part.done"
 	responsesEventOutputItemAdded          = "response.output_item.added"
 	responsesEventOutputItemDone           = "response.output_item.done"
 	responsesEventFunctionArgsDelta        = "response.function_call_arguments.delta"
@@ -99,9 +100,26 @@ func ResponsesResponseToChatCompletionsResponse(resp *dto.OpenAIResponsesRespons
 		finishReason = "tool_calls"
 	}
 
+	var refusal string
+	var annotations []interface{}
+	for _, out := range resp.Output {
+		for _, content := range out.Content {
+			if content.Type == "refusal" && refusal == "" {
+				refusal = content.Refusal
+			}
+			if content.Type == "output_text" && content.Annotations != nil {
+				annotations = append(annotations, content.Annotations...)
+			}
+		}
+	}
 	msg := dto.Message{
-		Role:    "assistant",
-		Content: text,
+		Role:        "assistant",
+		Content:     text,
+		Annotations: annotations,
+	}
+	if refusal != "" {
+		msg.Refusal = &refusal
+		msg.SetNullContent()
 	}
 	if reasoning != "" {
 		msg.ReasoningContent = &reasoning
@@ -218,6 +236,11 @@ func ExtractReasoningTextFromResponses(resp *dto.OpenAIResponsesResponse) string
 	for _, out := range resp.Output {
 		if out.Type != responsesOutputTypeReasoning {
 			continue
+		}
+		for _, summary := range out.Summary {
+			if summary.Text != "" {
+				sb.WriteString(summary.Text)
+			}
 		}
 		for _, c := range out.Content {
 			if c.Text != "" {

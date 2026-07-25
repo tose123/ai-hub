@@ -1,9 +1,11 @@
 package openai
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -99,6 +101,18 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 	}
 
 	return helper.ObjectData(c, lastStreamResponse)
+}
+
+func newBufferedJSONResponse(resp *http.Response, body []byte) *http.Response {
+	bufferedResp := new(http.Response)
+	*bufferedResp = *resp
+	bufferedResp.Header = resp.Header.Clone()
+	bufferedResp.Header.Set("Content-Type", "application/json")
+	bufferedResp.Header.Del("Content-Length")
+	bufferedResp.ContentLength = int64(len(body))
+	bufferedResp.TransferEncoding = nil
+	bufferedResp.Body = io.NopCloser(bytes.NewReader(body))
+	return bufferedResp
 }
 
 func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
@@ -200,6 +214,269 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
 	return usage, nil
+}
+
+type bufferedChatToolCall struct {
+	id        string
+	typ       any
+	name      strings.Builder
+	arguments strings.Builder
+}
+
+type bufferedChatChoice struct {
+	role                  string
+	content               strings.Builder
+	reasoning             strings.Builder
+	refusal               strings.Builder
+	functionCallName      strings.Builder
+	functionCallArguments strings.Builder
+	finishReason          string
+	toolCalls             map[int]*bufferedChatToolCall
+	logprobsSeen          bool
+	logprobsContentSeen   bool
+	logprobsRefusalSeen   bool
+	logprobsContent       []any
+	logprobsRefusal       []any
+}
+
+func appendChatLogprobs(choice *bufferedChatChoice, logprobs *any) {
+	if choice == nil || logprobs == nil || *logprobs == nil {
+		return
+	}
+	value, ok := (*logprobs).(map[string]interface{})
+	if !ok {
+		return
+	}
+	choice.logprobsSeen = true
+	if content, ok := value["content"].([]interface{}); ok {
+		choice.logprobsContentSeen = true
+		if choice.logprobsContent == nil {
+			choice.logprobsContent = make([]any, 0, len(content))
+		}
+		choice.logprobsContent = append(choice.logprobsContent, content...)
+	}
+	if refusal, ok := value["refusal"].([]interface{}); ok {
+		choice.logprobsRefusalSeen = true
+		if choice.logprobsRefusal == nil {
+			choice.logprobsRefusal = make([]any, 0, len(refusal))
+		}
+		choice.logprobsRefusal = append(choice.logprobsRefusal, refusal...)
+	}
+}
+
+func OaiBufferedStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	if resp == nil || resp.Body == nil {
+		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+	defer service.CloseResponseBodyGracefully(resp)
+	previousDisablePing := info.DisablePing
+	info.DisablePing = true
+	defer func() { info.DisablePing = previousDisablePing }()
+
+	choices := make(map[int]*bufferedChatChoice)
+	response := dto.OpenAITextResponse{Object: "chat.completion"}
+	var responseTextBuilder strings.Builder
+	var usage *dto.Usage
+	var streamErr *types.NewAPIError
+	var toolCount int
+	bufferedBytes := 0
+	maxBufferedBytes := helper.StreamScannerMaxBufferSize()
+
+	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		bufferedBytes += len(data)
+		if bufferedBytes > maxBufferedBytes {
+			err := fmt.Errorf("buffered stream response exceeds %d bytes", maxBufferedBytes)
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			sr.Stop(err)
+			return
+		}
+
+		var chunk dto.ChatCompletionsStreamResponse
+		if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+			sr.Stop(err)
+			return
+		}
+		if err := ProcessStreamResponse(chunk, &responseTextBuilder, &toolCount); err != nil {
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+			sr.Stop(err)
+			return
+		}
+		if chunk.Id != "" {
+			response.Id = chunk.Id
+		}
+		if chunk.Created != 0 {
+			response.Created = chunk.Created
+		}
+		if chunk.Model != "" {
+			response.Model = chunk.Model
+		}
+		if chunk.SystemFingerprint != nil {
+			response.SystemFingerprint = chunk.SystemFingerprint
+		}
+		if len(chunk.ServiceTier) > 0 {
+			response.ServiceTier = chunk.ServiceTier
+		}
+		if service.ValidUsage(chunk.Usage) {
+			usage = chunk.Usage
+		}
+
+		for _, chunkChoice := range chunk.Choices {
+			choice := choices[chunkChoice.Index]
+			if choice == nil {
+				choice = &bufferedChatChoice{toolCalls: make(map[int]*bufferedChatToolCall)}
+				choices[chunkChoice.Index] = choice
+			}
+			if chunkChoice.Delta.Role != "" {
+				choice.role = chunkChoice.Delta.Role
+			}
+			choice.content.WriteString(chunkChoice.Delta.GetContentString())
+			choice.reasoning.WriteString(chunkChoice.Delta.GetReasoningContent())
+			if chunkChoice.Delta.Refusal != nil {
+				choice.refusal.WriteString(*chunkChoice.Delta.Refusal)
+			}
+			if chunkChoice.Delta.FunctionCall != nil {
+				choice.functionCallName.WriteString(chunkChoice.Delta.FunctionCall.Name)
+				choice.functionCallArguments.WriteString(chunkChoice.Delta.FunctionCall.Arguments)
+			}
+			appendChatLogprobs(choice, chunkChoice.Logprobs)
+			if chunkChoice.FinishReason != nil {
+				choice.finishReason = *chunkChoice.FinishReason
+			}
+			for _, chunkTool := range chunkChoice.Delta.ToolCalls {
+				toolIndex := 0
+				if chunkTool.Index != nil {
+					toolIndex = *chunkTool.Index
+				}
+				tool := choice.toolCalls[toolIndex]
+				if tool == nil {
+					tool = &bufferedChatToolCall{}
+					choice.toolCalls[toolIndex] = tool
+				}
+				if chunkTool.ID != "" {
+					tool.id = chunkTool.ID
+				}
+				if chunkTool.Type != nil {
+					tool.typ = chunkTool.Type
+				}
+				tool.name.WriteString(chunkTool.Function.Name)
+				tool.arguments.WriteString(chunkTool.Function.Arguments)
+			}
+		}
+	})
+
+	if streamErr != nil {
+		return nil, streamErr
+	}
+	if info.StreamStatus == nil {
+		return nil, types.NewOpenAIError(fmt.Errorf("buffered stream status is unavailable"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+	if !info.StreamStatus.IsNormalEnd() || info.StreamStatus.HasErrors() {
+		return nil, types.NewOpenAIError(fmt.Errorf("buffered stream ended unexpectedly: %s", info.StreamStatus.Summary()), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+	if len(choices) == 0 {
+		return nil, types.NewOpenAIError(fmt.Errorf("buffered stream returned no choices"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+
+	choiceIndexes := make([]int, 0, len(choices))
+	for index := range choices {
+		choiceIndexes = append(choiceIndexes, index)
+	}
+	sort.Ints(choiceIndexes)
+	response.Choices = make([]dto.OpenAITextResponseChoice, 0, len(choiceIndexes))
+	for _, index := range choiceIndexes {
+		bufferedChoice := choices[index]
+		message := dto.Message{Role: bufferedChoice.role}
+		if message.Role == "" {
+			message.Role = "assistant"
+		}
+		if bufferedChoice.content.Len() == 0 && (len(bufferedChoice.toolCalls) > 0 || bufferedChoice.refusal.Len() > 0) {
+			message.SetNullContent()
+		} else {
+			message.SetStringContent(bufferedChoice.content.String())
+		}
+		if bufferedChoice.refusal.Len() > 0 {
+			refusal := bufferedChoice.refusal.String()
+			message.Refusal = &refusal
+		}
+		if bufferedChoice.reasoning.Len() > 0 {
+			reasoning := bufferedChoice.reasoning.String()
+			message.ReasoningContent = &reasoning
+		}
+		if bufferedChoice.functionCallName.Len() > 0 || bufferedChoice.functionCallArguments.Len() > 0 {
+			functionCall, err := common.Marshal(dto.FunctionResponse{
+				Name:      bufferedChoice.functionCallName.String(),
+				Arguments: bufferedChoice.functionCallArguments.String(),
+			})
+			if err != nil {
+				return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+			}
+			message.FunctionCall = functionCall
+		}
+		if len(bufferedChoice.toolCalls) > 0 {
+			toolIndexes := make([]int, 0, len(bufferedChoice.toolCalls))
+			for toolIndex := range bufferedChoice.toolCalls {
+				toolIndexes = append(toolIndexes, toolIndex)
+			}
+			sort.Ints(toolIndexes)
+			toolCalls := make([]dto.ToolCallResponse, 0, len(toolIndexes))
+			for _, toolIndex := range toolIndexes {
+				bufferedTool := bufferedChoice.toolCalls[toolIndex]
+				toolCalls = append(toolCalls, dto.ToolCallResponse{
+					ID:   bufferedTool.id,
+					Type: bufferedTool.typ,
+					Function: dto.FunctionResponse{
+						Name:      bufferedTool.name.String(),
+						Arguments: bufferedTool.arguments.String(),
+					},
+				})
+			}
+			toolCallsJSON, err := common.Marshal(toolCalls)
+			if err != nil {
+				return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+			}
+			message.ToolCalls = toolCallsJSON
+		}
+		var logprobs *any
+		if bufferedChoice.logprobsSeen {
+			logprobsValue := map[string]any{}
+			if bufferedChoice.logprobsContentSeen {
+				logprobsValue["content"] = bufferedChoice.logprobsContent
+			}
+			if bufferedChoice.logprobsRefusalSeen {
+				logprobsValue["refusal"] = bufferedChoice.logprobsRefusal
+			}
+			logprobsAny := any(logprobsValue)
+			logprobs = &logprobsAny
+		}
+		response.Choices = append(response.Choices, dto.OpenAITextResponseChoice{
+			Index:        index,
+			Message:      message,
+			Logprobs:     logprobs,
+			FinishReason: bufferedChoice.finishReason,
+		})
+	}
+
+	if response.Id == "" {
+		response.Id = helper.GetResponseID(c)
+	}
+	if response.Created == nil {
+		response.Created = info.StartTime.Unix()
+	}
+	if response.Model == "" {
+		response.Model = info.UpstreamModelName
+	}
+	if !service.ValidUsage(usage) {
+		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+		usage.CompletionTokens += toolCount * 7
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+	response.Usage = *usage
+	responseBody, err := common.Marshal(response)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+	}
+	return OpenaiHandler(c, info, newBufferedJSONResponse(resp, responseBody))
 }
 
 func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
@@ -310,6 +587,12 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
 		responseBody = geminiRespStr
+	}
+	if info.RelayFormat == types.RelayFormatOpenAI && info.UpstreamIsStream && !info.IsStream {
+		responseBody, err = ensureChatCompletionAnnotations(responseBody, &simpleResponse)
+		if err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+		}
 	}
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)

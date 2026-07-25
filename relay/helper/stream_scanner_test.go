@@ -56,6 +56,16 @@ func buildSSEBody(n int) string {
 	return b.String()
 }
 
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	writeDeadlines atomic.Int64
+}
+
+func (r *deadlineRecorder) SetWriteDeadline(time.Time) error {
+	r.writeDeadlines.Add(1)
+	return nil
+}
+
 // ---------- Basic correctness ----------
 
 func TestStreamScannerHandler_NilInputs(t *testing.T) {
@@ -98,6 +108,30 @@ func TestStreamScannerHandler_EmptyBody(t *testing.T) {
 	})
 
 	assert.False(t, called.Load(), "handler should not be called for empty body")
+}
+
+func TestStreamScannerHandler_ExtendsDeadlineOnlyForClientStream(t *testing.T) {
+	for _, isStream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("is_stream_%t", isStream), func(t *testing.T) {
+			recorder := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			resp := &http.Response{Body: io.NopCloser(strings.NewReader("data: {}\ndata: [DONE]\n"))}
+			info := &relaycommon.RelayInfo{
+				IsStream:   isStream,
+				DisablePing: true,
+				ChannelMeta: &relaycommon.ChannelMeta{},
+			}
+
+			StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {})
+
+			if isStream {
+				require.Positive(t, recorder.writeDeadlines.Load())
+			} else {
+				require.Zero(t, recorder.writeDeadlines.Load())
+			}
+		})
+	}
 }
 
 func TestStreamScannerHandler_1000Chunks(t *testing.T) {

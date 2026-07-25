@@ -34,17 +34,20 @@ type TextResponse struct {
 type OpenAITextResponseChoice struct {
 	Index        int `json:"index"`
 	Message      `json:"message"`
+	Logprobs     *any   `json:"logprobs"`
 	FinishReason string `json:"finish_reason"`
 }
 
 type OpenAITextResponse struct {
-	Id      string                     `json:"id"`
-	Model   string                     `json:"model"`
-	Object  string                     `json:"object"`
-	Created any                        `json:"created"`
-	Choices []OpenAITextResponseChoice `json:"choices"`
-	Error   any                        `json:"error,omitempty"`
-	Usage   `json:"usage"`
+	Id                string                     `json:"id"`
+	Model             string                     `json:"model"`
+	Object            string                     `json:"object"`
+	Created           any                        `json:"created"`
+	Choices           []OpenAITextResponseChoice `json:"choices"`
+	Error             any                        `json:"error,omitempty"`
+	Usage             `json:"usage"`
+	SystemFingerprint *string         `json:"system_fingerprint,omitempty"`
+	ServiceTier       json.RawMessage `json:"service_tier,omitempty"`
 }
 
 // GetOpenAIError 从动态错误类型中提取OpenAIError结构
@@ -87,6 +90,8 @@ type ChatCompletionsStreamResponseChoice struct {
 
 type ChatCompletionsStreamResponseChoiceDelta struct {
 	Content          *string            `json:"content,omitempty"`
+	FunctionCall     *FunctionResponse  `json:"function_call,omitempty"`
+	Refusal          *string            `json:"refusal,omitempty"`
 	ReasoningContent *string            `json:"reasoning_content,omitempty"`
 	Reasoning        *string            `json:"reasoning,omitempty"`
 	Role             string             `json:"role,omitempty"`
@@ -145,6 +150,7 @@ type ChatCompletionsStreamResponse struct {
 	Created           int64                                 `json:"created"`
 	Model             string                                `json:"model"`
 	SystemFingerprint *string                               `json:"system_fingerprint"`
+	ServiceTier       json.RawMessage                       `json:"service_tier,omitempty"`
 	Choices           []ChatCompletionsStreamResponseChoice `json:"choices"`
 	Usage             *Usage                                `json:"usage"`
 }
@@ -361,16 +367,17 @@ type IncompleteDetails struct {
 }
 
 type ResponsesOutput struct {
-	Type      string                   `json:"type"`
-	ID        string                   `json:"id"`
-	Status    string                   `json:"status"`
-	Role      string                   `json:"role"`
-	Content   []ResponsesOutputContent `json:"content"`
-	Quality   string                   `json:"quality"`
-	Size      string                   `json:"size"`
-	CallId    string                   `json:"call_id,omitempty"`
-	Name      string                   `json:"name,omitempty"`
-	Arguments json.RawMessage          `json:"arguments,omitempty"`
+	Type      string                          `json:"type"`
+	ID        string                          `json:"id"`
+	Status    string                          `json:"status"`
+	Role      string                          `json:"role"`
+	Content   []ResponsesOutputContent        `json:"content"`
+	Summary   []ResponsesReasoningSummaryPart `json:"summary,omitempty"`
+	Quality   string                          `json:"quality"`
+	Size      string                          `json:"size"`
+	CallId    string                          `json:"call_id,omitempty"`
+	Name      string                          `json:"name,omitempty"`
+	Arguments json.RawMessage                 `json:"arguments,omitempty"`
 }
 
 // ArgumentsString returns function call arguments in the string form expected by Chat Completions.
@@ -389,12 +396,15 @@ func ResponsesArgumentsString(arguments json.RawMessage) string {
 type ResponsesOutputContent struct {
 	Type        string        `json:"type"`
 	Text        string        `json:"text"`
+	Refusal     string        `json:"refusal,omitempty"`
 	Annotations []interface{} `json:"annotations"`
+	Logprobs    []interface{} `json:"logprobs"`
 }
 
 type ResponsesReasoningSummaryPart struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type        string        `json:"type"`
+	Text        string        `json:"text"`
+	Annotations []interface{} `json:"annotations,omitempty"`
 }
 
 const (

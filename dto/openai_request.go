@@ -289,6 +289,9 @@ type Message struct {
 	Content          any             `json:"content"`
 	Name             *string         `json:"name,omitempty"`
 	Prefix           *bool           `json:"prefix,omitempty"`
+	Refusal          *string         `json:"refusal,omitempty"`
+	Annotations      []interface{}   `json:"annotations,omitempty"`
+	FunctionCall     json.RawMessage `json:"function_call,omitempty"`
 	ReasoningContent *string         `json:"reasoning_content,omitempty"`
 	Reasoning        *string         `json:"reasoning,omitempty"`
 	ToolCalls        json.RawMessage `json:"tool_calls,omitempty"`

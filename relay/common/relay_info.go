@@ -98,6 +98,7 @@ type RelayInfo struct {
 	isFirstResponse   bool
 	//SendLastReasoningResponse bool
 	IsStream               bool
+	UpstreamIsStream       bool
 	IsGeminiBatchEmbedding bool
 	IsPlayground           bool
 	UsePrice               bool
@@ -238,12 +239,24 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	}
 
 	info.ChannelMeta = channelMeta
+	// RelayInfo is reused across retries; reset upstream stream mode before applying this channel's settings.
+	info.UpstreamIsStream = info.IsStream
 
 	// reset some fields based on channel meta
 	// 重置某些字段，例如模型名称等
 	if info.Request != nil {
 		info.Request.SetModelName(info.OriginModelName)
 	}
+}
+
+func (info *RelayInfo) ShouldForceUpstreamStream() bool {
+	if info == nil || info.ChannelMeta == nil ||
+		!info.ChannelSetting.ForceUpstreamStream ||
+		info.ChannelType != constant.ChannelTypeOpenAI {
+		return false
+	}
+	return info.RelayMode == relayconstant.RelayModeChatCompletions ||
+		info.RelayMode == relayconstant.RelayModeResponses
 }
 
 func (info *RelayInfo) ToString() string {
@@ -483,11 +496,12 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		TokenUnlimited: common.GetContextKeyBool(c, constant.ContextKeyTokenUnlimited),
 		TokenGroup:     tokenGroup,
 
-		isFirstResponse: true,
-		RelayMode:       relayconstant.Path2RelayMode(c.Request.URL.Path),
-		RequestURLPath:  c.Request.URL.String(),
-		RequestHeaders:  cloneRequestHeaders(c),
-		IsStream:        isStream,
+		isFirstResponse:  true,
+		RelayMode:        relayconstant.Path2RelayMode(c.Request.URL.Path),
+		RequestURLPath:   c.Request.URL.String(),
+		RequestHeaders:   cloneRequestHeaders(c),
+		IsStream:         isStream,
+		UpstreamIsStream: isStream,
 
 		StartTime:         startTime,
 		FirstResponseTime: startTime.Add(-time.Second),

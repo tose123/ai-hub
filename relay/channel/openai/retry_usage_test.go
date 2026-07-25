@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -40,6 +41,90 @@ func newTextTestContext(t *testing.T, path string, body string, contentType stri
 		Header:     http.Header{"Content-Type": []string{contentType}},
 	}
 	return c, recorder, resp
+}
+
+func TestOaiBufferedStreamHandlerReturnsCompleteChatJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	info := &relaycommon.RelayInfo{
+		RelayMode:        relayconstant.RelayModeChatCompletions,
+		RelayFormat:      types.RelayFormatOpenAI,
+		UpstreamIsStream: true,
+		ChannelMeta:      &relaycommon.ChannelMeta{UpstreamModelName: "gpt-5-mini"},
+		StartTime:        time.Unix(1780632412, 0),
+	}
+	body := strings.Join([]string{
+		`data: {"id":"chatcmpl-buffered","object":"chat.completion.chunk","created":1780632412,"model":"gpt-5-mini","system_fingerprint":"fp-buffered","service_tier":"default","choices":[{"index":0,"delta":{"role":"assistant","content":"hello "}}]}`,
+		`data: {"id":"chatcmpl-buffered","object":"chat.completion.chunk","created":1780632412,"model":"gpt-5-mini","choices":[{"index":0,"delta":{"content":"world","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"x\"}"}}]},"logprobs":{"content":[{"token":"world","logprob":-0.1,"bytes":[119],"top_logprobs":[]}]},"finish_reason":"tool_calls"}]}`,
+		`data: {"id":"chatcmpl-buffered","object":"chat.completion.chunk","created":1780632412,"model":"gpt-5-mini","choices":[],"usage":{"prompt_tokens":12,"completion_tokens":7,"total_tokens":19}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+	c, recorder, resp := newTextTestContext(t, "/v1/chat/completions", body, "text/event-stream", info)
+
+	usage, apiErr := OaiBufferedStreamHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	require.Equal(t, 19, usage.TotalTokens)
+	require.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
+	var response dto.OpenAITextResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, "chat.completion", response.Object)
+	require.Equal(t, "fp-buffered", *response.SystemFingerprint)
+	require.Equal(t, "default", common.JsonRawMessageToString(response.ServiceTier))
+	require.Equal(t, "hello world", response.Choices[0].Message.StringContent())
+	require.NotNil(t, response.Choices[0].Message.Annotations)
+	require.Empty(t, response.Choices[0].Message.Annotations)
+	require.Equal(t, "tool_calls", response.Choices[0].FinishReason)
+	require.NotNil(t, response.Choices[0].Logprobs)
+	logprobs, ok := (*response.Choices[0].Logprobs).(map[string]interface{})
+	require.True(t, ok)
+	require.Len(t, logprobs["content"], 1)
+	toolCalls := response.Choices[0].Message.ParseToolCalls()
+	require.Len(t, toolCalls, 1)
+	require.Equal(t, "lookup", toolCalls[0].Function.Name)
+	require.JSONEq(t, `{"q":"x"}`, toolCalls[0].Function.Arguments)
+}
+
+func TestOaiBufferedStreamHandlerPreservesChatRefusal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	info := &relaycommon.RelayInfo{
+		RelayMode:   relayconstant.RelayModeChatCompletions,
+		RelayFormat: types.RelayFormatOpenAI,
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-5-mini"},
+		StartTime:   time.Unix(1780632412, 0),
+	}
+	body := strings.Join([]string{
+		`data: {"id":"chatcmpl-refusal","object":"chat.completion.chunk","created":1780632412,"model":"gpt-5-mini","choices":[{"index":0,"delta":{"role":"assistant","refusal":"I cannot help with that."},"logprobs":{"content":[],"refusal":[]}}]}`,
+		`data: {"id":"chatcmpl-refusal","object":"chat.completion.chunk","created":1780632412,"model":"gpt-5-mini","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+	c, recorder, resp := newTextTestContext(t, "/v1/chat/completions", body, "text/event-stream", info)
+
+	_, apiErr := OaiBufferedStreamHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	var response dto.OpenAITextResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Nil(t, response.Choices[0].Message.Content)
+	require.Equal(t, "I cannot help with that.", *response.Choices[0].Message.Refusal)
+	require.NotNil(t, response.Choices[0].Logprobs)
+	logprobs, ok := (*response.Choices[0].Logprobs).(map[string]interface{})
+	require.True(t, ok)
+	contentLogprobs, ok := logprobs["content"].([]interface{})
+	require.True(t, ok)
+	require.Empty(t, contentLogprobs)
+	refusalLogprobs, ok := logprobs["refusal"].([]interface{})
+	require.True(t, ok)
+	require.Empty(t, refusalLogprobs)
 }
 
 func TestOpenaiHandlerRetriesWhenUsageIsZero(t *testing.T) {
