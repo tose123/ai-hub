@@ -20,6 +20,7 @@
     "gpt-5.4": 1.25,
     "gpt-5.4-mini": 0.375,
     "claude-fable-5": 5,
+    "claude-opus-5": 2.5,
     "claude-opus-4-8": 2.5,
     "claude-opus-4-7": 2.5,
     "claude-opus-4-6": 2.5,
@@ -41,6 +42,7 @@
     "gpt-5.4": 0.1,
     "gpt-5.4-mini": 0.1,
     "claude-fable-5": 0.1,
+    "claude-opus-5": 0.1,
     "claude-opus-4-8": 0.1,
     "claude-opus-4-7": 0.1,
     "claude-opus-4-6": 0.1,
@@ -58,6 +60,7 @@
   // 创建缓存倍率
   {
     "claude-fable-5": 1.25,
+    "claude-opus-5": 1.25,
     "claude-opus-4-8": 1.25,
     "claude-opus-4-7": 1.25,
     "claude-opus-4-6": 1.25,
@@ -73,6 +76,7 @@
     "gpt-5.4": 6,
     "gpt-5.4-mini": 6,
     "claude-fable-5": 5,
+    "claude-opus-5": 5,
     "claude-opus-4-8": 5,
     "claude-opus-4-7": 5,
     "claude-opus-4-6": 5,
