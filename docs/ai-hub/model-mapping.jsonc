@@ -4,7 +4,7 @@
     "gpt-l": "gpt-5.6-sol",
     "gpt-m": "gpt-5.6-terra",
     "gpt-s": "gpt-5.6-luna",
-    "claude-l": "claude-opus-4-8",
+    "claude-l": "claude-opus-5",
     "claude-m": "claude-sonnet-5",
     "claude-s": "claude-haiku-4-5"
   },
