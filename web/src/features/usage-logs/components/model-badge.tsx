@@ -170,9 +170,9 @@ export function ModelBadge(props: ModelBadgeProps) {
         <ModelBadgeContent {...props} />
         <Route className='text-muted-foreground size-3 shrink-0' />
       </PopoverTrigger>
-      <PopoverContent className='w-72'>
+      <PopoverContent className='w-full'>
         <div className='space-y-2'>
-          <div className='flex items-start justify-between gap-3'>
+          <div className='flex items-start gap-1'>
             <span className='text-muted-foreground text-xs'>
               {t('Request Model:')}
             </span>
@@ -180,7 +180,7 @@ export function ModelBadge(props: ModelBadgeProps) {
               {props.modelName}
             </span>
           </div>
-          <div className='flex items-start justify-between gap-3'>
+          <div className='flex items-start gap-1'>
             <span className='text-muted-foreground text-xs'>
               {t('Actual Model:')}
             </span>

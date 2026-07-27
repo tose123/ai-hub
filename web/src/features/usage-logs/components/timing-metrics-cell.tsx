@@ -75,8 +75,9 @@ export function TimingMetricsCell(props: TimingMetricsCellProps) {
     firstTokenSeconds == null
       ? 'neutral'
       : getFirstResponseTimeColor(firstTokenSeconds)
+  const tpsUseTime = Math.max(props.useTimeSec - (firstTokenSeconds || 0), 1)
   const totalTimeVariant = getResponseTimeColor(
-    props.useTimeSec,
+    tpsUseTime,
     props.completionTokens
   )
   const firstTokenLabel =

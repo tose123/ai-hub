@@ -657,9 +657,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         if (!isTimingLogType(log.type)) return null
 
         const useTime = row.getValue('use_time') as number
+        const other = parseLogOther(log.other)
+        const ttft = (other?.frt || 0) / 1000
+        const tpsUseTime = Math.max(useTime - ttft, 1)
         const tokensPerSecond =
-          useTime > 0 && log.completion_tokens > 0
-            ? log.completion_tokens / useTime
+          tpsUseTime > 0 && log.completion_tokens > 0
+            ? log.completion_tokens / tpsUseTime
             : null
 
         return (
