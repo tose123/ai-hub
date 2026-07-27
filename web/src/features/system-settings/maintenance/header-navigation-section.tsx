@@ -55,6 +55,7 @@ const headerNavSchema = z.object({
   pricingRequireAuth: z.boolean(),
   rankingsEnabled: z.boolean(),
   rankingsRequireAuth: z.boolean(),
+  modelStatus: z.boolean(),
   docs: z.boolean(),
   about: z.boolean(),
 })
@@ -89,6 +90,10 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
     config.rankings?.requireAuth === undefined
       ? HEADER_NAV_DEFAULT.rankings.requireAuth
       : Boolean(config.rankings.requireAuth),
+  modelStatus:
+    config.modelStatus === undefined
+      ? HEADER_NAV_DEFAULT.modelStatus
+      : Boolean(config.modelStatus),
   docs:
     config.docs === undefined ? HEADER_NAV_DEFAULT.docs : Boolean(config.docs),
   about:
@@ -131,6 +136,7 @@ export function HeaderNavigationSection({
         enabled: values.rankingsEnabled,
         requireAuth: values.rankingsRequireAuth,
       },
+      modelStatus: values.modelStatus,
     }
 
     const serialized = serializeHeaderNavModules(payload)
@@ -162,6 +168,11 @@ export function HeaderNavigationSection({
       key: 'console',
       title: t('Console'),
       description: t('User dashboard and quota controls.'),
+    },
+    {
+      key: 'modelStatus',
+      title: t('Model Status'),
+      description: t('Live model availability and status.'),
     },
     {
       key: 'docs',

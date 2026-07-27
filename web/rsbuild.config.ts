@@ -68,7 +68,17 @@ export default defineConfig(({ envMode }) => {
     server: {
       host: '0.0.0.0',
       strictPort: false,
-      proxy: devProxy,
+      proxy: {
+        ...devProxy,
+        '/model-status-embed': {
+          target: 'http://localhost:9511',
+          changeOrigin: true,
+          pathRewrite: {
+            '^/model-status-embed/$': '/embed.html',
+            '^/model-status-embed/': '/',
+          },
+        },
+      },
     },
     output: {
       // Production optimizations
