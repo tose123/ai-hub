@@ -9,6 +9,31 @@ SET "param_override" = $param_override$
 {
   "operations": [
     {
+      "path": "prompt_cache_key",
+      "mode": "set",
+      "value": "019fa6be-f59c-7fa2-aabb-9660d972e99c",
+      "logic": "AND",
+      "conditions": [
+        { "path": "request_path", "mode": "prefix", "value": "/v1/responses" }
+      ]
+    },
+    {
+      "path": "store",
+      "mode": "delete",
+      "logic": "AND",
+      "conditions": [
+        { "path": "request_path", "mode": "prefix", "value": "/v1/responses" }
+      ]
+    },
+    {
+      "path": "client_metadata",
+      "mode": "delete",
+      "logic": "AND",
+      "conditions": [
+        { "path": "request_path", "mode": "prefix", "value": "/v1/responses" }
+      ]
+    },
+    {
       "path": "include",
       "mode": "set",
       "value": [],
@@ -16,7 +41,7 @@ SET "param_override" = $param_override$
       "logic": "AND",
       "conditions": [
         { "path": "request_path", "mode": "prefix", "value": "/v1/responses" },
-        { "path": "request_headers.user-agent", "mode": "contains", "value": "Codex", "invert": true, "pass_missing_key": true }
+        { "path": "request_headers.user-agent", "mode": "contains", "value": "odex", "invert": true, "pass_missing_key": true }
       ]
     },
     {
@@ -26,7 +51,7 @@ SET "param_override" = $param_override$
       "logic": "AND",
       "conditions": [
         { "path": "request_path", "mode": "prefix", "value": "/v1/responses" },
-        { "path": "request_headers.user-agent", "mode": "contains", "value": "Codex", "invert": true, "pass_missing_key": true },
+        { "path": "request_headers.user-agent", "mode": "contains", "value": "odex", "invert": true, "pass_missing_key": true },
         { "path": "include.#(==\"web_search_call.action.sources\")", "mode": "full", "value": "web_search_call.action.sources", "invert": true, "pass_missing_key": true }
       ]
     },
@@ -38,7 +63,7 @@ SET "param_override" = $param_override$
       "logic": "AND",
       "conditions": [
         { "path": "request_path", "mode": "prefix", "value": "/v1/responses" },
-        { "path": "request_headers.user-agent", "mode": "contains", "value": "Codex", "invert": true, "pass_missing_key": true }
+        { "path": "request_headers.user-agent", "mode": "contains", "value": "odex", "invert": true, "pass_missing_key": true }
       ]
     },
     {
@@ -48,7 +73,7 @@ SET "param_override" = $param_override$
       "logic": "AND",
       "conditions": [
         { "path": "request_path", "mode": "prefix", "value": "/v1/responses" },
-        { "path": "request_headers.user-agent", "mode": "contains", "value": "Codex", "invert": true, "pass_missing_key": true },
+        { "path": "request_headers.user-agent", "mode": "contains", "value": "odex", "invert": true, "pass_missing_key": true },
         { "path": "tools.#(type==\"image_generation\").type", "mode": "full", "value": "image_generation" }
       ]
     },
@@ -59,7 +84,7 @@ SET "param_override" = $param_override$
       "logic": "AND",
       "conditions": [
         { "path": "request_path", "mode": "prefix", "value": "/v1/responses" },
-        { "path": "request_headers.user-agent", "mode": "contains", "value": "Codex", "invert": true, "pass_missing_key": true },
+        { "path": "request_headers.user-agent", "mode": "contains", "value": "odex", "invert": true, "pass_missing_key": true },
         { "path": "tools.#(type==\"web_search\").type", "mode": "full", "value": "web_search", "invert": true, "pass_missing_key": true }
       ]
     },
@@ -70,7 +95,7 @@ SET "param_override" = $param_override$
       "logic": "AND",
       "conditions": [
         { "path": "request_path", "mode": "prefix", "value": "/v1/responses" },
-        { "path": "request_headers.user-agent", "mode": "contains", "value": "Codex", "invert": true, "pass_missing_key": true }
+        { "path": "request_headers.user-agent", "mode": "contains", "value": "odex", "invert": true, "pass_missing_key": true }
       ]
     }
   ]
