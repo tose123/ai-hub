@@ -11,6 +11,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -26,6 +27,13 @@ func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.
 	if isResponsesCompact && strings.HasSuffix(originModelName, ratio_setting.CompactModelSuffix) {
 		mappingModelName = strings.TrimSuffix(originModelName, ratio_setting.CompactModelSuffix)
 	}
+	modelNameWithoutCompact := mappingModelName
+	baseModelName := model_setting.BaseModelForMatching(mappingModelName)
+	modelSuffix := ""
+	if strings.HasPrefix(mappingModelName, baseModelName) {
+		modelSuffix = strings.TrimPrefix(mappingModelName, baseModelName)
+	}
+	mappingModelName = baseModelName
 
 	// map model name
 	modelMapping := c.GetString("model_mapping")
@@ -64,17 +72,19 @@ func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.
 			}
 		}
 		if info.IsModelMapped {
+			if model_setting.BaseModelForMatching(currentModel) == currentModel {
+				currentModel += modelSuffix
+			}
 			info.UpstreamModelName = currentModel
 		}
 	}
 
 	if isResponsesCompact {
-		finalUpstreamModelName := mappingModelName
+		finalUpstreamModelName := modelNameWithoutCompact
 		if info.IsModelMapped && info.UpstreamModelName != "" {
 			finalUpstreamModelName = info.UpstreamModelName
 		}
 		info.UpstreamModelName = finalUpstreamModelName
-		info.OriginModelName = ratio_setting.WithCompactModelSuffix(finalUpstreamModelName)
 	}
 	if request != nil {
 		request.SetModelName(info.UpstreamModelName)
