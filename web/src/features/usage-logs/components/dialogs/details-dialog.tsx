@@ -74,6 +74,7 @@ import {
   isViolationFeeLog,
   getFirstResponseTimeColor,
   getResponseTimeColor,
+  formatModelName,
   renderAuditContent,
 } from '../../lib/format'
 import {
@@ -481,6 +482,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const details = props.log.content ?? ''
   const other = parseLogOther(props.log.other)
+  const modelInfo = formatModelName(props.log)
   const typeConfig = getLogTypeConfig(props.log.type)
 
   const isViolation = isViolationFeeLog(other)
@@ -1044,16 +1046,16 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Model mapping */}
-        {other?.is_model_mapped && other?.upstream_model_name && (
+        {modelInfo.isMapped && modelInfo.requestModel && (
           <DetailSection label={t('Model Mapping')}>
             <DetailRow
               label={t('Request Model')}
-              value={props.log.model_name}
+              value={modelInfo.requestModel}
               mono
             />
             <DetailRow
               label={t('Actual Model')}
-              value={other.upstream_model_name}
+              value={modelInfo.name}
               mono
             />
           </DetailSection>

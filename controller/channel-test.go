@@ -496,12 +496,13 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	tok := time.Now()
 	milliseconds := tok.Sub(tik).Milliseconds()
 	consumedTime := float64(milliseconds) / 1000.0
+	logModel, _, _ := service.ResolveRelayLogModelNamesForController(c, info)
 	other := buildTestLogOther(c, info, priceData, usage, tieredResult)
 	model.RecordConsumeLog(c, testUserID, model.RecordConsumeLogParams{
 		ChannelId:        channel.Id,
 		PromptTokens:     usage.PromptTokens,
 		CompletionTokens: usage.CompletionTokens,
-		ModelName:        info.OriginModelName,
+		ModelName:        logModel,
 		TokenName:        "模型测试",
 		Quota:            quota,
 		Content:          "模型测试",

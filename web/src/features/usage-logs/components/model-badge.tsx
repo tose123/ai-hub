@@ -30,7 +30,7 @@ import { cn } from '@/lib/utils'
 
 interface ModelBadgeProps {
   modelName: string
-  actualModel?: string
+  requestModel?: string
   className?: string
 }
 
@@ -156,40 +156,47 @@ function ModelBadgeContent(props: ModelBadgeProps) {
 export function ModelBadge(props: ModelBadgeProps) {
   const { t } = useTranslation()
 
-  if (!props.actualModel) {
+  if (!props.requestModel) {
     return <ModelBadgeContent {...props} />
   }
 
   return (
-    <Popover>
-      <PopoverTrigger
-        render={
-          <button type='button' className='inline-flex items-center gap-1' />
-        }
-      >
-        <ModelBadgeContent {...props} />
-        <Route className='text-muted-foreground size-3 shrink-0' />
-      </PopoverTrigger>
-      <PopoverContent className='w-full'>
-        <div className='space-y-2'>
-          <div className='flex items-start gap-1'>
-            <span className='text-muted-foreground text-xs'>
-              {t('Request Model:')}
-            </span>
-            <span className='truncate font-mono text-xs font-medium'>
-              {props.modelName}
-            </span>
+    <div className='inline-flex items-center gap-1'>
+      <ModelBadgeContent {...props} />
+      <Popover>
+        <PopoverTrigger
+          render={
+            <button
+              type='button'
+              className='text-muted-foreground hover:text-foreground inline-flex size-5 shrink-0 items-center justify-center'
+              aria-label={t('Model Mapping')}
+              title={t('Model Mapping')}
+            />
+          }
+        >
+          <Route className='size-3.5' />
+        </PopoverTrigger>
+        <PopoverContent className='w-full'>
+          <div className='space-y-2'>
+            <div className='flex items-start gap-1'>
+              <span className='text-muted-foreground text-xs'>
+                {t('Request Model:')}
+              </span>
+              <span className='truncate font-mono text-xs font-medium'>
+                {props.requestModel}
+              </span>
+            </div>
+            <div className='flex items-start gap-1'>
+              <span className='text-muted-foreground text-xs'>
+                {t('Actual Model:')}
+              </span>
+              <span className='truncate font-mono text-xs font-medium'>
+                {props.modelName}
+              </span>
+            </div>
           </div>
-          <div className='flex items-start gap-1'>
-            <span className='text-muted-foreground text-xs'>
-              {t('Actual Model:')}
-            </span>
-            <span className='truncate font-mono text-xs font-medium'>
-              {props.actualModel}
-            </span>
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+    </div>
   )
 }

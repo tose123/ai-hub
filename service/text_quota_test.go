@@ -36,46 +36,48 @@ func TestResolveRelayLogModelNames(t *testing.T) {
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
 
-	t.Run("token mapping only", func(t *testing.T) {
-		common.SetContextKey(ctx, constant.ContextKeyRequestModel, "alias-a")
+	t.Run("external mapping", func(t *testing.T) {
 		info := &relaycommon.RelayInfo{
-			OriginModelName: "model-b",
-			ChannelMeta: &relaycommon.ChannelMeta{
-				UpstreamModelName: "model-b",
-			},
-		}
-		logModel, upstreamModel, isMapped := resolveRelayLogModelNames(ctx, info)
-		require.Equal(t, "alias-a", logModel)
-		require.Equal(t, "model-b", upstreamModel)
-		require.True(t, isMapped)
-	})
-
-	t.Run("token and channel mapping", func(t *testing.T) {
-		common.SetContextKey(ctx, constant.ContextKeyRequestModel, "alias-a")
-		info := &relaycommon.RelayInfo{
-			OriginModelName: "model-b",
+			OriginModelName:     "model-b",
+			RequestModelName:    "alias-a",
+			ExternalModelName:   "model-b",
+			ExternalModelMapped: true,
 			ChannelMeta: &relaycommon.ChannelMeta{
 				UpstreamModelName: "model-c",
 			},
 		}
-		logModel, upstreamModel, isMapped := resolveRelayLogModelNames(ctx, info)
-		require.Equal(t, "alias-a", logModel)
-		require.Equal(t, "model-c", upstreamModel)
+		logModel, requestModel, isMapped := resolveRelayLogModelNames(ctx, info)
+		require.Equal(t, "model-b", logModel)
+		require.Equal(t, "alias-a", requestModel)
 		require.True(t, isMapped)
 	})
 
-	t.Run("no mapping", func(t *testing.T) {
-		common.SetContextKey(ctx, constant.ContextKeyRequestModel, "")
+	t.Run("channel mapping only", func(t *testing.T) {
 		info := &relaycommon.RelayInfo{
-			OriginModelName: "model-b",
+			OriginModelName:   "model-b",
+			RequestModelName:  "model-b",
+			ExternalModelName: "model-b",
 			ChannelMeta: &relaycommon.ChannelMeta{
-				UpstreamModelName: "model-b",
+				UpstreamModelName: "model-c",
 			},
 		}
-		logModel, upstreamModel, isMapped := resolveRelayLogModelNames(ctx, info)
+		logModel, requestModel, isMapped := resolveRelayLogModelNames(ctx, info)
 		require.Equal(t, "model-b", logModel)
-		require.Equal(t, "model-b", upstreamModel)
+		require.Equal(t, "model-b", requestModel)
 		require.False(t, isMapped)
+	})
+
+	t.Run("same-name external mapping", func(t *testing.T) {
+		info := &relaycommon.RelayInfo{
+			OriginModelName:     "model-b",
+			RequestModelName:    "model-b",
+			ExternalModelName:   "model-b",
+			ExternalModelMapped: true,
+		}
+		logModel, requestModel, isMapped := resolveRelayLogModelNames(ctx, info)
+		require.Equal(t, "model-b", logModel)
+		require.Equal(t, "model-b", requestModel)
+		require.True(t, isMapped)
 	})
 }
 

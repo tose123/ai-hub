@@ -362,6 +362,8 @@ func TestRecordRelayErrorLogUsesRequestModelWhenMapped(t *testing.T) {
 	ctx.Set("channel_type", 1)
 	ctx.Set("use_channel", []string{"5"})
 	common.SetContextKey(ctx, constant.ContextKeyRequestModel, "alias-a")
+	common.SetContextKey(ctx, constant.ContextKeyExternalModel, "gpt-5.5")
+	common.SetContextKey(ctx, constant.ContextKeyExternalModelMapped, true)
 	common.SetContextKey(ctx, constant.ContextKeyUpstreamModel, "gpt-5.5")
 
 	recordRelayErrorLog(ctx, types.NewErrorWithStatusCode(errors.New("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway))
@@ -369,12 +371,12 @@ func TestRecordRelayErrorLogUsesRequestModelWhenMapped(t *testing.T) {
 	var logs []model.Log
 	require.NoError(t, db.Find(&logs).Error)
 	require.Len(t, logs, 1)
-	require.Equal(t, "alias-a", logs[0].ModelName)
+	require.Equal(t, "gpt-5.5", logs[0].ModelName)
 	var other map[string]interface{}
 	require.NoError(t, common.Unmarshal([]byte(logs[0].Other), &other))
 	require.Equal(t, true, other["is_model_mapped"])
-	require.Equal(t, "gpt-5.5", other["upstream_model_name"])
 	require.Equal(t, "alias-a", other["request_model_name"])
+	require.NotContains(t, other, "upstream_model_name")
 }
 
 func TestRecordRelayErrorLogUsesFinalUpstreamModelWhenDoubleMapped(t *testing.T) {
@@ -400,6 +402,8 @@ func TestRecordRelayErrorLogUsesFinalUpstreamModelWhenDoubleMapped(t *testing.T)
 	ctx.Set("channel_type", 1)
 	ctx.Set("use_channel", []string{"5"})
 	common.SetContextKey(ctx, constant.ContextKeyRequestModel, "alias-a")
+	common.SetContextKey(ctx, constant.ContextKeyExternalModel, "model-b")
+	common.SetContextKey(ctx, constant.ContextKeyExternalModelMapped, true)
 	common.SetContextKey(ctx, constant.ContextKeyUpstreamModel, "model-c")
 
 	recordRelayErrorLog(ctx, types.NewErrorWithStatusCode(errors.New("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway))
@@ -407,11 +411,12 @@ func TestRecordRelayErrorLogUsesFinalUpstreamModelWhenDoubleMapped(t *testing.T)
 	var logs []model.Log
 	require.NoError(t, db.Find(&logs).Error)
 	require.Len(t, logs, 1)
-	require.Equal(t, "alias-a", logs[0].ModelName)
+	require.Equal(t, "model-b", logs[0].ModelName)
 	var other map[string]interface{}
 	require.NoError(t, common.Unmarshal([]byte(logs[0].Other), &other))
 	require.Equal(t, true, other["is_model_mapped"])
-	require.Equal(t, "model-c", other["upstream_model_name"])
+	require.Equal(t, "alias-a", other["request_model_name"])
+	require.NotContains(t, other, "upstream_model_name")
 }
 
 func TestRecordConsumeLogAddsRequestMetadata(t *testing.T) {

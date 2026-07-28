@@ -40,67 +40,66 @@ func attachQuotaSaturation(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, o
 }
 
 func resolveRelayLogModelNames(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) (string, string, bool) {
+	logModel := ""
 	requestModel := ""
+	isMapped := false
+	hasRelayModelState := false
+	if relayInfo != nil {
+		logModel = strings.TrimSpace(relayInfo.ExternalModelName)
+		requestModel = strings.TrimSpace(relayInfo.RequestModelName)
+		isMapped = relayInfo.ExternalModelMapped
+		hasRelayModelState = logModel != "" || requestModel != ""
+	}
 	if ctx != nil {
-		requestModel = strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyRequestModel))
+		if logModel == "" {
+			logModel = strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyExternalModel))
+		}
+		if requestModel == "" {
+			requestModel = strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyRequestModel))
+		}
+		if !hasRelayModelState {
+			isMapped = common.GetContextKeyBool(ctx, constant.ContextKeyExternalModelMapped)
+		}
 	}
-	if requestModel == "" && relayInfo != nil {
-		requestModel = strings.TrimSpace(relayInfo.OriginModelName)
+	if logModel == "" && relayInfo != nil {
+		logModel = strings.TrimSpace(relayInfo.OriginModelName)
 	}
-
-	upstreamModel := ""
-	if relayInfo != nil && relayInfo.ChannelMeta != nil {
-		upstreamModel = strings.TrimSpace(relayInfo.UpstreamModelName)
-	}
-	if upstreamModel == "" && ctx != nil {
-		upstreamModel = strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyUpstreamModel))
-	}
-	if upstreamModel == "" && relayInfo != nil {
-		upstreamModel = strings.TrimSpace(relayInfo.OriginModelName)
-	}
-
-	isMapped := requestModel != "" && upstreamModel != "" && requestModel != upstreamModel
 	if requestModel == "" {
-		requestModel = upstreamModel
+		requestModel = logModel
 	}
-	return requestModel, upstreamModel, isMapped
+	return logModel, requestModel, isMapped
 }
 
 func resolveContextLogModelNames(ctx *gin.Context) (string, string, bool) {
+	logModel := strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyExternalModel))
+	if logModel == "" {
+		logModel = strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyOriginalModel))
+	}
 	requestModel := strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyRequestModel))
 	if requestModel == "" {
-		requestModel = strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyOriginalModel))
+		requestModel = logModel
 	}
-
-	upstreamModel := strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyUpstreamModel))
-	if upstreamModel == "" {
-		upstreamModel = strings.TrimSpace(common.GetContextKeyString(ctx, constant.ContextKeyOriginalModel))
-	}
-
-	isMapped := requestModel != "" && upstreamModel != "" && requestModel != upstreamModel
-	if requestModel == "" {
-		requestModel = upstreamModel
-	}
-	return requestModel, upstreamModel, isMapped
+	return logModel, requestModel, common.GetContextKeyBool(ctx, constant.ContextKeyExternalModelMapped)
 }
 
-func applyMappedModelInfo(other map[string]interface{}, requestModel, upstreamModel string, isMapped bool) {
-	if other == nil || !isMapped || upstreamModel == "" {
+func applyMappedModelInfo(other map[string]interface{}, requestModel string, isMapped bool) {
+	if other == nil || !isMapped || requestModel == "" {
 		return
 	}
 	other["is_model_mapped"] = true
-	other["upstream_model_name"] = upstreamModel
-	if requestModel != "" {
-		other["request_model_name"] = requestModel
-	}
+	other["request_model_name"] = requestModel
 }
 
 func ResolveContextLogModelNamesForController(ctx *gin.Context) (string, string, bool) {
 	return resolveContextLogModelNames(ctx)
 }
 
-func ApplyMappedModelInfoForController(other map[string]interface{}, requestModel, upstreamModel string, isMapped bool) {
-	applyMappedModelInfo(other, requestModel, upstreamModel, isMapped)
+func ResolveRelayLogModelNamesForController(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) (string, string, bool) {
+	return resolveRelayLogModelNames(ctx, relayInfo)
+}
+
+func ApplyMappedModelInfoForController(other map[string]interface{}, requestModel string, isMapped bool) {
+	applyMappedModelInfo(other, requestModel, isMapped)
 }
 
 func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
@@ -139,8 +138,8 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	if relayInfo.ReasoningEffort != "" {
 		other["reasoning_effort"] = relayInfo.ReasoningEffort
 	}
-	requestModel, upstreamModel, isMapped := resolveRelayLogModelNames(ctx, relayInfo)
-	applyMappedModelInfo(other, requestModel, upstreamModel, isMapped)
+	_, requestModel, isMapped := resolveRelayLogModelNames(ctx, relayInfo)
+	applyMappedModelInfo(other, requestModel, isMapped)
 
 	isSystemPromptOverwritten := common.GetContextKeyBool(ctx, constant.ContextKeySystemPromptOverride)
 	if isSystemPromptOverwritten {
@@ -344,13 +343,15 @@ func GenerateClaudeOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 	return info
 }
 
-func GenerateMjOtherInfo(relayInfo *relaycommon.RelayInfo, priceData hosttypes.PriceData) map[string]interface{} {
+func GenerateMjOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, priceData hosttypes.PriceData) map[string]interface{} {
 	other := make(map[string]interface{})
 	other["model_price"] = priceData.ModelPrice
 	other["group_ratio"] = priceData.GroupRatioInfo.GroupRatio
 	if priceData.GroupRatioInfo.HasSpecialRatio {
 		other["user_group_ratio"] = priceData.GroupRatioInfo.GroupSpecialRatio
 	}
+	_, requestModel, isMapped := resolveRelayLogModelNames(ctx, relayInfo)
+	applyMappedModelInfo(other, requestModel, isMapped)
 	appendRequestPath(nil, relayInfo, other)
 	return other
 }
