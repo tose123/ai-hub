@@ -22,6 +22,7 @@ import (
 const (
 	ginKeyChannelAffinityCacheKey   = "channel_affinity_cache_key"
 	ginKeyChannelAffinityTTLSeconds = "channel_affinity_ttl_seconds"
+	ginKeyChannelAffinityGeneration = "channel_affinity_generation"
 	ginKeyChannelAffinityMeta       = "channel_affinity_meta"
 	ginKeyChannelAffinityLogInfo    = "channel_affinity_log_info"
 	ginKeyChannelAffinitySkipRetry  = "channel_affinity_skip_retry_on_failure"
@@ -32,8 +33,10 @@ const (
 )
 
 var (
-	channelAffinityCacheOnce sync.Once
-	channelAffinityCache     *cachex.HybridCache[int]
+	channelAffinityCacheOnce  sync.Once
+	channelAffinityCache      *cachex.HybridCache[int]
+	channelAffinityCacheMu    sync.RWMutex
+	channelAffinityGeneration uint64
 
 	channelAffinityUsageCacheStatsOnce  sync.Once
 	channelAffinityUsageCacheStatsCache *cachex.HybridCache[ChannelAffinityUsageCacheCounters]
@@ -197,17 +200,22 @@ func GetChannelAffinityCacheStats() ChannelAffinityCacheStats {
 }
 
 func ClearChannelAffinityCacheAll() int {
+	channelAffinityCacheMu.Lock()
+	defer channelAffinityCacheMu.Unlock()
+
 	cache := getChannelAffinityCache()
 	keys, err := cache.Keys()
 	if err != nil {
 		common.SysError(fmt.Sprintf("channel affinity cache list keys failed: err=%v", err))
-		keys = nil
+		return 0
 	}
 	if len(keys) > 0 {
 		if _, err := cache.DeleteMany(keys); err != nil {
 			common.SysError(fmt.Sprintf("channel affinity cache delete many failed: err=%v", err))
+			return len(keys)
 		}
 	}
+	channelAffinityGeneration++
 	return len(keys)
 }
 
@@ -351,8 +359,13 @@ func buildChannelAffinityCacheKeySuffix(rule operation_setting.ChannelAffinityRu
 }
 
 func setChannelAffinityContext(c *gin.Context, meta channelAffinityMeta) {
+	channelAffinityCacheMu.RLock()
+	generation := channelAffinityGeneration
+	channelAffinityCacheMu.RUnlock()
+
 	c.Set(ginKeyChannelAffinityCacheKey, meta.CacheKey)
 	c.Set(ginKeyChannelAffinityTTLSeconds, meta.TTLSeconds)
+	c.Set(ginKeyChannelAffinityGeneration, generation)
 	c.Set(ginKeyChannelAffinityMeta, meta)
 }
 
@@ -760,6 +773,21 @@ func RecordChannelAffinity(c *gin.Context, channelID int) {
 	if ttlSeconds <= 0 {
 		ttlSeconds = 3600
 	}
+	generationAny, ok := c.Get(ginKeyChannelAffinityGeneration)
+	if !ok {
+		return
+	}
+	generation, ok := generationAny.(uint64)
+	if !ok {
+		return
+	}
+
+	channelAffinityCacheMu.RLock()
+	defer channelAffinityCacheMu.RUnlock()
+	if generation != channelAffinityGeneration {
+		return
+	}
+
 	cache := getChannelAffinityCache()
 	cachedChannelID, found, err := cache.Get(cacheKey)
 	if err != nil {

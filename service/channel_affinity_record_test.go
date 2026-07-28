@@ -87,6 +87,22 @@ func TestInvalidatedChannelAffinityIsNotRecordedAtRequestEnd(t *testing.T) {
 	require.False(t, found)
 }
 
+func TestClearChannelAffinityCacheAllPreventsInFlightRecord(t *testing.T) {
+	withChannelAffinityRecordSetting(t)
+
+	cache := GetChannelAffinityCacheForTest()
+	cacheKey := newChannelAffinityRecordCacheKey(t)
+	ctx := buildChannelAffinityRecordContextForTest(cacheKey, 1)
+	require.NoError(t, cache.SetWithTTL(cacheKey, 101, time.Minute))
+
+	require.Greater(t, ClearChannelAffinityCacheAll(), 0)
+	RecordChannelAffinity(ctx, 101)
+
+	_, found, err := cache.Get(cacheKey)
+	require.NoError(t, err)
+	require.False(t, found)
+}
+
 func TestRecordChannelAffinitySameChannelDoesNotRefreshTTL(t *testing.T) {
 	withChannelAffinityRecordSetting(t)
 
