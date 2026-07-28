@@ -182,7 +182,7 @@ function PriorityCell({ channel }: { channel: Channel }) {
       channelId={channel.id}
       value={channel.priority}
       field='priority'
-      min={-999}
+      min={-99999999}
     />
   )
 }
@@ -204,7 +204,7 @@ function TagPriorityCell({ channel }: { channel: TagRow }) {
           setPendingValue(value)
           setConfirmOpen(true)
         }}
-        min={-999}
+        min={-99999999}
       />
       <ConfirmDialog
         open={confirmOpen}
@@ -226,43 +226,34 @@ function TagPriorityCell({ channel }: { channel: TagRow }) {
   )
 }
 
-    return (
-      <>
-        <NumericSpinnerInput
-          value={priority ?? 0}
-          onChange={(value) => {
-            setPendingValue(value)
-            setConfirmOpen(true)
-          }}
-          min={-99999999}
-        />
-        <ConfirmDialog
-          open={confirmOpen}
-          onOpenChange={setConfirmOpen}
-          title={t('Confirm Batch Update')}
-          desc={t(
-            'This will update the priority to {{value}} for all {{count}} channel(s) with tag "{{tag}}". Continue?',
-            { value: pendingValue, count: channelCount, tag }
-          )}
-          confirmText={t('Update')}
-          handleConfirm={() => {
-            if (pendingValue !== null) {
-              handleUpdateTagField(tag, 'priority', pendingValue, queryClient)
-            }
-            setConfirmOpen(false)
-          }}
-        />
-      </>
-    )
-  }
+function ChannelFieldCell({
+  channelId,
+  value,
+  field,
+  min,
+}: {
+  channelId: number
+  value: number | null | undefined
+  field: 'priority' | 'weight'
+  min: number
+}) {
+  const queryClient = useQueryClient()
+  const fieldUpdateScheduler = useMemo(
+    () =>
+      createChannelFieldUpdateScheduler((nextValue) => {
+        void handleUpdateChannelField(channelId, field, nextValue, queryClient)
+      }),
+    [channelId, field, queryClient]
+  )
+
+  useEffect(() => () => fieldUpdateScheduler.flush(), [fieldUpdateScheduler])
 
   return (
     <NumericSpinnerInput
-      value={priority ?? 0}
-      onChange={(value) => {
-        handleUpdateChannelField(channel.id, 'priority', value, queryClient)
-      }}
-      min={-99999999}
+      value={value ?? 0}
+      onChange={fieldUpdateScheduler.schedule}
+      onCommit={fieldUpdateScheduler.flush}
+      min={min}
     />
   )
 }

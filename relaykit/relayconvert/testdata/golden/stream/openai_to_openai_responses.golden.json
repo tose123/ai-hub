@@ -86,7 +86,8 @@
             {
               "type": "output_text",
               "text": "Hello world",
-              "annotations": []
+              "annotations": [],
+              "logprobs": null
             }
           ],
           "quality": "",
@@ -117,7 +118,8 @@
                 {
                   "type": "output_text",
                   "text": "Hello world",
-                  "annotations": []
+                  "annotations": [],
+                  "logprobs": null
                 }
               ],
               "quality": "",

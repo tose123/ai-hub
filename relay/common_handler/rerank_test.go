@@ -9,9 +9,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/types"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
+	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -26,8 +27,8 @@ func TestRerankHandlerCapturesSearchUnitsAndSynthesizesUsage(t *testing.T) {
 		ChannelMeta: &relaycommon.ChannelMeta{
 			ChannelType: constant.ChannelTypeOpenRouter,
 		},
-		RelayFormat: types.RelayFormatRerank,
-		PriceData: types.PriceData{
+		RelayFormat: relaytypes.RelayFormatRerank,
+		PriceData: hosttypes.PriceData{
 			UsePrice:   true,
 			ModelPrice: 0.002857,
 		},
@@ -68,8 +69,8 @@ func TestRerankHandlerFixedPriceFallbackSynthesizesUsageWhenEstimateMissing(t *t
 		ChannelMeta: &relaycommon.ChannelMeta{
 			ChannelType: constant.ChannelTypeOpenRouter,
 		},
-		RelayFormat: types.RelayFormatRerank,
-		PriceData: types.PriceData{
+		RelayFormat: relaytypes.RelayFormatRerank,
+		PriceData: hosttypes.PriceData{
 			UsePrice:   true,
 			ModelPrice: 0.002857,
 		},

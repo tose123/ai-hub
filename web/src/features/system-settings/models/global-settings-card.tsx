@@ -257,11 +257,14 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
               <FormItem>
                 <FormLabel>{t('Global Model Mapping')}</FormLabel>
                 <FormControl>
-                  <Textarea
-                    rows={6}
+                  <JsonCodeEditor
+                    value={field.value}
+                    onChange={(value) => field.onChange(value)}
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    textareaRef={field.ref}
                     placeholder={`${t('Example:')}\n${globalModelMappingExample}`}
-                    {...field}
-                    onChange={(event) => field.onChange(event.target.value)}
+                    heightClassName='h-36 min-h-36 max-h-36'
                   />
                 </FormControl>
                 <FormDescription>

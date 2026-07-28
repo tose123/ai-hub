@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"math"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -9,7 +10,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -21,6 +21,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -142,12 +144,12 @@ func TestCalculateTextQuotaSummaryAppliesChannelCachedTokensRatioOpenAI(t *testi
 				CachedTokensRatio: float64Ptr(0.3),
 			},
 		},
-		PriceData: types.PriceData{
+		PriceData: hosttypes.PriceData{
 			ModelRatio:         1,
 			CompletionRatio:    1,
 			CacheRatio:         0.1,
 			CacheCreationRatio: 1.25,
-			GroupRatioInfo:     types.GroupRatioInfo{GroupRatio: 1},
+			GroupRatioInfo:     hosttypes.GroupRatioInfo{GroupRatio: 1},
 		},
 		StartTime: time.Now(),
 	}
@@ -183,14 +185,14 @@ func TestCalculateTextQuotaSummaryAppliesChannelCachedTokensRatioClaudeSplitWrit
 				CachedTokensRatio: float64Ptr(0.5),
 			},
 		},
-		PriceData: types.PriceData{
+		PriceData: hosttypes.PriceData{
 			ModelRatio:           1,
 			CompletionRatio:      1,
 			CacheRatio:           0.1,
 			CacheCreationRatio:   1,
 			CacheCreation5mRatio: 2,
 			CacheCreation1hRatio: 3,
-			GroupRatioInfo:       types.GroupRatioInfo{GroupRatio: 1},
+			GroupRatioInfo:       hosttypes.GroupRatioInfo{GroupRatio: 1},
 		},
 		StartTime: time.Now(),
 	}
@@ -528,10 +530,10 @@ func TestCalculateTextQuotaSummaryRerankPriceUsesSearchUnits(t *testing.T) {
 	relayInfo := &relaycommon.RelayInfo{
 		RelayFormat:     types.RelayFormatRerank,
 		OriginModelName: "cohere/rerank-4-pro",
-		PriceData: types.PriceData{
+		PriceData: hosttypes.PriceData{
 			UsePrice:       true,
 			ModelPrice:     modelPrice,
-			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
+			GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1},
 		},
 		StartTime: time.Now(),
 	}
@@ -555,10 +557,10 @@ func TestCalculateTextQuotaSummaryRerankPriceDefaultsToOneSearchUnit(t *testing.
 	relayInfo := &relaycommon.RelayInfo{
 		RelayFormat:     types.RelayFormatRerank,
 		OriginModelName: "cohere/rerank-4-pro",
-		PriceData: types.PriceData{
+		PriceData: hosttypes.PriceData{
 			UsePrice:       true,
 			ModelPrice:     modelPrice,
-			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
+			GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1},
 		},
 		StartTime: time.Now(),
 	}
@@ -845,10 +847,10 @@ func TestPostTextConsumeQuotaDeprioritizesWhenUsageMissing(t *testing.T) {
 		ChannelMeta: &relaycommon.ChannelMeta{
 			ChannelId: 21,
 		},
-		PriceData: types.PriceData{
+		PriceData: hosttypes.PriceData{
 			ModelRatio:      1,
 			CompletionRatio: 1,
-			GroupRatioInfo:  types.GroupRatioInfo{GroupRatio: 1},
+			GroupRatioInfo:  hosttypes.GroupRatioInfo{GroupRatio: 1},
 		},
 		StartTime: time.Now(),
 	}
@@ -898,10 +900,10 @@ func TestPostTextConsumeQuotaSkipsDeprioritizeForPositivePriority(t *testing.T) 
 		ChannelMeta: &relaycommon.ChannelMeta{
 			ChannelId: 22,
 		},
-		PriceData: types.PriceData{
+		PriceData: hosttypes.PriceData{
 			ModelRatio:      1,
 			CompletionRatio: 1,
-			GroupRatioInfo:  types.GroupRatioInfo{GroupRatio: 1},
+			GroupRatioInfo:  hosttypes.GroupRatioInfo{GroupRatio: 1},
 		},
 		StartTime: time.Now(),
 	}

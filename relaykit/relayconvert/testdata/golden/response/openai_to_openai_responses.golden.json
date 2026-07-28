@@ -16,7 +16,8 @@
         {
           "type": "output_text",
           "text": "The answer is 42.",
-          "annotations": []
+          "annotations": [],
+          "logprobs": null
         }
       ],
       "quality": "",
@@ -31,7 +32,8 @@
         {
           "type": "summary_text",
           "text": "Deep thought.",
-          "annotations": null
+          "annotations": null,
+          "logprobs": null
         }
       ],
       "quality": "",

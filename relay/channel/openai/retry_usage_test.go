@@ -11,11 +11,11 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -165,9 +165,9 @@ func TestOaiStreamHandlerWritesTerminalErrorAfterPartialOutput(t *testing.T) {
 	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
 
 	info := &relaycommon.RelayInfo{
-		IsStream:          true,
-		RelayMode:         relayconstant.RelayModeChatCompletions,
-		RelayFormat:       types.RelayFormatOpenAI,
+		IsStream:    true,
+		RelayMode:   relayconstant.RelayModeChatCompletions,
+		RelayFormat: types.RelayFormatOpenAI,
 		ChannelMeta: &relaycommon.ChannelMeta{
 			UpstreamModelName: "gpt-5-mini",
 		},
@@ -219,10 +219,10 @@ func TestOaiResponsesStreamHandlerWritesFailedInsteadOfCompletedWhenUsageInvalid
 	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
 
 	info := &relaycommon.RelayInfo{
-		StartTime:         time.Unix(1780632412, 0),
-		IsStream:          true,
-		RelayMode:         relayconstant.RelayModeResponses,
-		RelayFormat:       types.RelayFormatOpenAIResponses,
+		StartTime:   time.Unix(1780632412, 0),
+		IsStream:    true,
+		RelayMode:   relayconstant.RelayModeResponses,
+		RelayFormat: types.RelayFormatOpenAIResponses,
 		ChannelMeta: &relaycommon.ChannelMeta{
 			UpstreamModelName: "gpt-3.5-turbo",
 		},
@@ -255,10 +255,10 @@ func TestOaiResponsesStreamHandlerRetriesWhenUsageInvalidBeforeAnyChunk(t *testi
 	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
 
 	info := &relaycommon.RelayInfo{
-		StartTime:         time.Unix(1780632412, 0),
-		IsStream:          true,
-		RelayMode:         relayconstant.RelayModeResponses,
-		RelayFormat:       types.RelayFormatOpenAIResponses,
+		StartTime:   time.Unix(1780632412, 0),
+		IsStream:    true,
+		RelayMode:   relayconstant.RelayModeResponses,
+		RelayFormat: types.RelayFormatOpenAIResponses,
 		ChannelMeta: &relaycommon.ChannelMeta{
 			UpstreamModelName: "gpt-3.5-turbo",
 		},
@@ -286,10 +286,10 @@ func TestOaiResponsesToChatStreamHandlerWritesTerminalErrorAfterPartialOutput(t 
 	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
 
 	info := &relaycommon.RelayInfo{
-		StartTime:         time.Unix(1780632412, 0),
-		IsStream:          true,
-		RelayMode:         relayconstant.RelayModeChatCompletions,
-		RelayFormat:       types.RelayFormatOpenAI,
+		StartTime:   time.Unix(1780632412, 0),
+		IsStream:    true,
+		RelayMode:   relayconstant.RelayModeChatCompletions,
+		RelayFormat: types.RelayFormatOpenAI,
 		ChannelMeta: &relaycommon.ChannelMeta{
 			UpstreamModelName: "gpt-3.5-turbo",
 		},

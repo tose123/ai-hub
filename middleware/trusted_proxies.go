@@ -52,6 +52,7 @@ func ConfigureTrustedProxies(engine *gin.Engine) error {
 		return engine.SetTrustedProxies(nil)
 	}
 
+	trustedProxies := make([]string, 0)
 	for part := range strings.SplitSeq(rawTrustedProxies, ",") {
 		trustedProxy := strings.TrimSpace(part)
 		if trustedProxy == "" {
@@ -60,12 +61,12 @@ func ConfigureTrustedProxies(engine *gin.Engine) error {
 		if strings.EqualFold(trustedProxy, "none") {
 			return errors.New("TRUSTED_PROXIES=none must be used alone")
 		}
-		defaultTrustedProxyCIDRs = append(defaultTrustedProxyCIDRs, trustedProxy)
+		trustedProxies = append(trustedProxies, trustedProxy)
 	}
-	if len(defaultTrustedProxyCIDRs) == 0 {
+	if len(trustedProxies) == 0 {
 		return errors.New("TRUSTED_PROXIES does not contain an IP address or CIDR")
 	}
-	if err := engine.SetTrustedProxies(defaultTrustedProxyCIDRs); err != nil {
+	if err := engine.SetTrustedProxies(trustedProxies); err != nil {
 		return fmt.Errorf("invalid TRUSTED_PROXIES: %w", err)
 	}
 	return nil

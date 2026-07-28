@@ -3,8 +3,8 @@ package service
 import (
 	"math"
 
-	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 const defaultCachedTokensRatio = 1.0

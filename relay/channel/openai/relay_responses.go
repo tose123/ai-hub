@@ -115,12 +115,6 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
-	if responsesResponse.HasImageGenerationCall() {
-		c.Set("image_generation_call", true)
-		c.Set("image_generation_call_quality", responsesResponse.GetQuality())
-		c.Set("image_generation_call_size", responsesResponse.GetSize())
-	}
-
 	// compute usage
 	usage := dto.Usage{}
 	if responsesResponse.Usage != nil {
@@ -139,24 +133,25 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 
 	// 写入新的 response body
 	service.IOCopyBytesGracefully(c, resp, responseBody)
-	if info == nil || info.ResponsesUsageInfo == nil || info.ResponsesUsageInfo.BuiltInTools == nil {
+	if info == nil {
 		return &usage, nil
 	}
-	for _, output := range responsesResponse.Output {
-		if output.Type == dto.BuildInCallWebSearchCall {
-			recordWebSearchCall(info)
+	if info.ResponsesUsageInfo == nil {
+		info.ResponsesUsageInfo = &relaycommon.ResponsesUsageInfo{
+			BuiltInTools: make(map[string]*relaycommon.BuildInToolInfo),
 		}
 	}
-	// 解析 Tools 用量
-	for _, tool := range responsesResponse.Tools {
-		toolType := common.Interface2String(tool["type"])
-		if toolType == dto.BuildInToolWebSearch || toolType == dto.BuildInToolWebSearchPreview {
-			continue
-		}
-		buildToolinfo, ok := info.ResponsesUsageInfo.BuiltInTools[toolType]
-		if !ok || buildToolinfo == nil {
-			logger.LogError(c, fmt.Sprintf("BuiltInTools not found for tool type: %v", tool["type"]))
-			continue
+	if info.ResponsesUsageInfo.BuiltInTools == nil {
+		info.ResponsesUsageInfo.BuiltInTools = make(map[string]*relaycommon.BuildInToolInfo)
+	}
+	for _, output := range responsesResponse.Output {
+		switch output.Type {
+		case dto.BuildInCallWebSearchCall:
+			recordWebSearchCall(info)
+		case dto.BuildInCallFileSearchCall:
+			info.CountBillableToolCall(dto.BuildInCallFileSearchCall, "")
+		case dto.BuildInCallFunctionCall:
+			info.CountBillableToolCall(dto.BuildInCallFunctionCall, output.Name)
 		}
 	}
 
@@ -189,6 +184,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	var chatModel string
 	var finalCompletedEvent *dto.ResponsesStreamResponse
 	var sawExplicitUsage bool
+	var nonBillableTerminalSeen bool
+	imageCounter := &relaycommon.ImageGenerationCallCounter{}
+	imageCommitted := false
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -224,16 +222,16 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			return
 		}
 		switch streamResponse.Type {
-			case "response.completed":
-				responsesCompletedSeen = true
-				streamCopy := streamResponse
-				finalCompletedEvent = &streamCopy
-				if streamResponse.Response != nil {
-					if streamResponse.Response.Usage != nil {
-						sawExplicitUsage = true
-						if streamResponse.Response.Usage.InputTokens != 0 {
-							usage.PromptTokens = streamResponse.Response.Usage.InputTokens
-						}
+		case "response.completed", "response.done":
+			responsesCompletedSeen = true
+			streamCopy := streamResponse
+			finalCompletedEvent = &streamCopy
+			if streamResponse.Response != nil {
+				if streamResponse.Response.Usage != nil {
+					sawExplicitUsage = true
+					if streamResponse.Response.Usage.InputTokens != 0 {
+						usage.PromptTokens = streamResponse.Response.Usage.InputTokens
+					}
 					if streamResponse.Response.Usage.OutputTokens != 0 {
 						usage.CompletionTokens = streamResponse.Response.Usage.OutputTokens
 					}
@@ -263,12 +261,15 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				imageCounter.Commit(info)
 				imageCommitted = true
 			}
+			return
 		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+			nonBillableTerminalSeen = true
 			if !imageCommitted {
 				imageCounter.Reset()
 				imageCounter.Commit(info)
 				imageCommitted = true
 			}
+			sendResponsesStreamData(c, streamResponse, data)
 			return
 		case "response.output_text.delta":
 			// 处理输出文本
@@ -278,21 +279,22 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				switch streamResponse.Item.Type {
 				case dto.BuildInCallWebSearchCall:
 					recordWebSearchCall(info)
+				case dto.BuildInCallFileSearchCall:
+					info.CountBillableToolCall(dto.BuildInCallFileSearchCall, "")
+				case dto.BuildInCallFunctionCall:
+					info.CountBillableToolCall(dto.BuildInCallFunctionCall, streamResponse.Item.Name)
 				case dto.ResponsesOutputTypeImageGenerationCall:
-					if info != nil && info.ResponsesUsageInfo != nil && info.ResponsesUsageInfo.BuiltInTools != nil {
-						if imageGenerationTool, exists := info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolImageGeneration]; exists && imageGenerationTool != nil {
-							imageGenerationTool.CallCount++
-						}
-					} else {
-						c.Set("image_generation_call", true)
-						c.Set("image_generation_call_quality", streamResponse.Item.Quality)
-						c.Set("image_generation_call_size", streamResponse.Item.Size)
+					if !imageCommitted {
+						imageCounter.Observe(streamResponse.Item, streamResponse.OutputIndex)
 					}
 				}
 			}
 		}
 		sendResponsesStreamData(c, streamResponse, data)
 	})
+	if nonBillableTerminalSeen {
+		return usage, nil
+	}
 
 	if usage.CompletionTokens == 0 && !sawExplicitUsage {
 		// 计算输出文本的 token 数量

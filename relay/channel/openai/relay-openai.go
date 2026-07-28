@@ -223,6 +223,31 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	return usage, nil
 }
 
+func collectStreamFunctionCallNames(data string, seen map[string]struct{}, names *[]string) {
+	var streamResponse dto.ChatCompletionsStreamResponse
+	if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
+		return
+	}
+	for _, choice := range streamResponse.Choices {
+		for i, tc := range choice.Delta.ToolCalls {
+			name := tc.Function.Name
+			if name == "" {
+				continue
+			}
+			toolIdx := i
+			if tc.Index != nil {
+				toolIdx = *tc.Index
+			}
+			key := fmt.Sprintf("%d-%d", choice.Index, toolIdx)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			*names = append(*names, name)
+		}
+	}
+}
+
 type bufferedChatToolCall struct {
 	id        string
 	typ       any

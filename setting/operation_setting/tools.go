@@ -218,6 +218,21 @@ func GetToolPrice(toolName string) float64 {
 	return GetToolPriceForModel(toolName, "")
 }
 
+// SetToolPriceForTest injects a tool price and rebuilds the lookup index. Tests only.
+func SetToolPriceForTest(name string, price float64) {
+	if toolPriceSetting.Prices == nil {
+		toolPriceSetting.Prices = make(map[string]float64)
+	}
+	toolPriceSetting.Prices[name] = price
+	RebuildToolPriceIndex()
+}
+
+// DeleteToolPriceForTest removes an injected tool price and rebuilds the index. Tests only.
+func DeleteToolPriceForTest(name string) {
+	delete(toolPriceSetting.Prices, name)
+	RebuildToolPriceIndex()
+}
+
 // ---------------------------------------------------------------------------
 // GPT Image 1 per-call pricing (special: depends on quality + size)
 // ---------------------------------------------------------------------------
@@ -256,14 +271,14 @@ func GetGPTImage1PriceOnceCall(quality string, size string) float64 {
 			"1536x1024": GPTImage1High1536x1024,
 		},
 	}
-	toolPriceSetting.Prices[name] = price
-	RebuildToolPriceIndex()
-}
 
-// DeleteToolPriceForTest removes an injected tool price and rebuilds the index. Tests only.
-func DeleteToolPriceForTest(name string) {
-	delete(toolPriceSetting.Prices, name)
-	RebuildToolPriceIndex()
+	if qualityMap, exists := prices[quality]; exists {
+		if price, exists := qualityMap[size]; exists {
+			return price
+		}
+	}
+
+	return GPTImage1High1024x1024
 }
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@
       "message": {
         "role": "assistant",
         "content": "The answer is 42.",
+        "reasoning_content": "Deep thought.",
         "tool_calls": [
           {
             "id": "call_abc",
@@ -20,6 +21,7 @@
           }
         ]
       },
+      "logprobs": null,
       "finish_reason": "tool_calls"
     }
   ],
