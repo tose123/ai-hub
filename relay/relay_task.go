@@ -64,10 +64,25 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 		return service.TaskErrorWrapperLocal(errors.New("task_origin_not_exist"), "task_not_exist", http.StatusBadRequest)
 	}
 
+	if info.ExternalModelName == "" {
+		info.ExternalModelName = originTask.Properties.OriginModelName
+	}
+	if info.RequestModelName == "" {
+		info.RequestModelName = originTask.PrivateData.RequestModelName
+		if info.RequestModelName == "" {
+			info.RequestModelName = info.ExternalModelName
+		}
+	}
+	if originTask.PrivateData.ExternalModelMapped {
+		info.ExternalModelMapped = true
+	}
+
 	// 从原始任务推导模型名称
 	if info.OriginModelName == "" {
 		if originTask.Properties.OriginModelName != "" {
 			info.OriginModelName = originTask.Properties.OriginModelName
+		} else if originTask.PrivateData.UpstreamModelName != "" {
+			info.OriginModelName = originTask.PrivateData.UpstreamModelName
 		} else if originTask.Properties.UpstreamModelName != "" {
 			info.OriginModelName = originTask.Properties.UpstreamModelName
 		} else {
@@ -78,6 +93,9 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 			}
 		}
 	}
+	common.SetContextKey(c, constant.ContextKeyRequestModel, info.RequestModelName)
+	common.SetContextKey(c, constant.ContextKeyExternalModel, info.ExternalModelName)
+	common.SetContextKey(c, constant.ContextKeyExternalModelMapped, info.ExternalModelMapped)
 
 	// 锁定到原始任务的渠道（重试时复用同一渠道，轮换 key）
 	ch, err := model.GetChannelById(originTask.ChannelId, true)
@@ -163,6 +181,12 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	modelName := info.OriginModelName
 	if modelName == "" {
 		modelName = service.CoverTaskActionToModelName(platform, info.Action)
+	}
+	if info.ExternalModelName == "" {
+		info.ExternalModelName = modelName
+	}
+	if info.RequestModelName == "" {
+		info.RequestModelName = info.ExternalModelName
 	}
 
 	// 2.5 应用渠道的模型映射（与同步任务对齐）

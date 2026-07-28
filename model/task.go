@@ -79,7 +79,8 @@ func (t *Task) GetData(v any) error {
 }
 
 type Properties struct {
-	Input             string `json:"input"`
+	Input string `json:"input"`
+	// UpstreamModelName is kept only for reading legacy tasks.
 	UpstreamModelName string `json:"upstream_model_name,omitempty"`
 	OriginModelName   string `json:"origin_model_name,omitempty"`
 }
@@ -101,9 +102,12 @@ func (m Properties) Value() (driver.Value, error) {
 }
 
 type TaskPrivateData struct {
-	Key            string `json:"key,omitempty"`
-	UpstreamTaskID string `json:"upstream_task_id,omitempty"` // 上游真实 task ID
-	ResultURL      string `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	Key                 string `json:"key,omitempty"`
+	UpstreamTaskID      string `json:"upstream_task_id,omitempty"` // 上游真实 task ID
+	ResultURL           string `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	RequestModelName    string `json:"request_model_name,omitempty"`
+	ExternalModelMapped bool   `json:"external_model_mapped,omitempty"`
+	UpstreamModelName   string `json:"upstream_model_name,omitempty"`
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
@@ -177,15 +181,18 @@ type SyncTaskQueryParams struct {
 func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) *Task {
 	properties := Properties{}
 	privateData := TaskPrivateData{}
-	if relayInfo != nil && relayInfo.ChannelMeta != nil {
-		if relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeGemini ||
-			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeVertexAi {
+	if relayInfo != nil {
+		if relayInfo.ChannelMeta != nil && (relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeGemini ||
+			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeVertexAi) {
 			privateData.Key = relayInfo.ChannelMeta.ApiKey
 		}
-		if relayInfo.UpstreamModelName != "" {
-			properties.UpstreamModelName = relayInfo.UpstreamModelName
+		privateData.RequestModelName = relayInfo.RequestModelName
+		privateData.ExternalModelMapped = relayInfo.ExternalModelMapped
+		if relayInfo.ChannelMeta != nil && relayInfo.UpstreamModelName != "" {
+			privateData.UpstreamModelName = relayInfo.UpstreamModelName
 		}
-		if relayInfo.OriginModelName != "" {
+		properties.OriginModelName = relayInfo.ExternalModelName
+		if properties.OriginModelName == "" {
 			properties.OriginModelName = relayInfo.OriginModelName
 		}
 	}

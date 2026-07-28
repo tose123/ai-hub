@@ -7,11 +7,13 @@ const (
 	ContextKeyPromptTokens    ContextKey = "prompt_tokens"
 	ContextKeyEstimatedTokens ContextKey = "estimated_tokens"
 
-	ContextKeyOriginalModel     ContextKey = "original_model"
-	ContextKeyRequestModel      ContextKey = "request_model"
-	ContextKeyUpstreamModel     ContextKey = "upstream_model"
-	ContextKeyUpstreamAttempted ContextKey = "upstream_attempted"
-	ContextKeyRequestStartTime  ContextKey = "request_start_time"
+	ContextKeyOriginalModel       ContextKey = "original_model"
+	ContextKeyRequestModel        ContextKey = "request_model"
+	ContextKeyExternalModel       ContextKey = "external_model"
+	ContextKeyExternalModelMapped ContextKey = "external_model_mapped"
+	ContextKeyUpstreamModel       ContextKey = "upstream_model"
+	ContextKeyUpstreamAttempted   ContextKey = "upstream_attempted"
+	ContextKeyRequestStartTime    ContextKey = "request_start_time"
 
 	/* token related keys */
 	ContextKeyTokenUnlimited          ContextKey = "token_unlimited_quota"
@@ -57,8 +59,8 @@ const (
 	ContextKeyUsingGroup  ContextKey = "group"
 	ContextKeyUserName    ContextKey = "username"
 
-	ContextKeyLocalCountTokens  ContextKey = "local_count_tokens"
-	ContextKeyRerankSearchUnits ContextKey = "rerank_search_units"
+	ContextKeyLocalCountTokens       ContextKey = "local_count_tokens"
+	ContextKeyRerankSearchUnits      ContextKey = "rerank_search_units"
 	ContextKeyResponsePayloadWritten ContextKey = "response_payload_written"
 	ContextKeyResponseControlBytes   ContextKey = "response_control_bytes"
 

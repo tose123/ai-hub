@@ -462,7 +462,7 @@ func recordRelayErrorLog(c *gin.Context, err *types.NewAPIError) int {
 		// 保存错误日志到mysql中
 		userId := c.GetInt("id")
 		tokenName := c.GetString("token_name")
-		modelName, upstreamModel, isMapped := service.ResolveContextLogModelNamesForController(c)
+		modelName, requestModel, isMapped := service.ResolveContextLogModelNamesForController(c)
 		tokenId := c.GetInt("token_id")
 		userGroup := c.GetString("group")
 		channelId := c.GetInt("channel_id")
@@ -476,7 +476,7 @@ func recordRelayErrorLog(c *gin.Context, err *types.NewAPIError) int {
 		other["channel_id"] = channelId
 		other["channel_name"] = c.GetString("channel_name")
 		other["channel_type"] = c.GetInt("channel_type")
-		service.ApplyMappedModelInfoForController(other, modelName, upstreamModel, isMapped)
+		service.ApplyMappedModelInfoForController(other, requestModel, isMapped)
 		adminInfo := make(map[string]interface{})
 		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
 		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
@@ -691,7 +691,7 @@ func RelayTask(c *gin.Context) {
 			GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
 			ModelRatio:      relayInfo.PriceData.ModelRatio,
 			OtherRatios:     relayInfo.PriceData.OtherRatios(),
-			OriginModelName: relayInfo.OriginModelName,
+			OriginModelName: relayInfo.ExternalModelName,
 			PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
 		}
 		task.Quota = result.Quota

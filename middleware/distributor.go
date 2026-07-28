@@ -40,12 +40,17 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
-		common.SetContextKey(c, constant.ContextKeyRequestModel, modelRequest.Model)
-		routedModel, baseModel, err := resolveRoutedModel(c, modelRequest.Model)
+		routedModel, baseModel, externalModelMapped, err := resolveRoutedModel(c, modelRequest.Model)
 		if err != nil {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, "Invalid model mapping format"))
 			return
 		}
+		externalModel := routedModel
+		if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") {
+			externalModel = strings.TrimSuffix(externalModel, ratio_setting.CompactModelSuffix)
+		}
+		common.SetContextKey(c, constant.ContextKeyExternalModel, externalModel)
+		common.SetContextKey(c, constant.ContextKeyExternalModelMapped, externalModelMapped)
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
@@ -179,34 +184,34 @@ func Distribute() func(c *gin.Context) {
 	}
 }
 
-func resolveRoutedModel(c *gin.Context, requestModel string) (string, string, error) {
-	globalMappedModel, err := applyModelMapping(c, requestModel, model_setting.GetGlobalSettings().ModelMapping)
+func resolveRoutedModel(c *gin.Context, requestModel string) (string, string, bool, error) {
+	globalMappedModel, globalMapped, err := applyModelMapping(c, requestModel, model_setting.GetGlobalSettings().ModelMapping)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
-	routedModel, err := applyTokenModelMapping(c, globalMappedModel)
+	routedModel, tokenMapped, err := applyTokenModelMapping(c, globalMappedModel)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
-	return routedModel, model_setting.BaseModelForMatching(routedModel), nil
+	return routedModel, model_setting.BaseModelForMatching(routedModel), globalMapped || tokenMapped, nil
 }
 
-func applyTokenModelMapping(c *gin.Context, requestModel string) (string, error) {
+func applyTokenModelMapping(c *gin.Context, requestModel string) (string, bool, error) {
 	modelMapping := common.GetContextKeyString(c, constant.ContextKeyTokenModelMapping)
 	if requestModel == "" || modelMapping == "" || modelMapping == "{}" {
-		return requestModel, nil
+		return requestModel, false, nil
 	}
 
 	modelMap := make(map[string]string)
 	if err := common.UnmarshalJsonStr(modelMapping, &modelMap); err != nil {
-		return "", err
+		return "", false, err
 	}
 	return applyModelMapping(c, requestModel, modelMap)
 }
 
-func applyModelMapping(c *gin.Context, requestModel string, modelMap map[string]string) (string, error) {
+func applyModelMapping(c *gin.Context, requestModel string, modelMap map[string]string) (string, bool, error) {
 	if requestModel == "" || len(modelMap) == 0 {
-		return requestModel, nil
+		return requestModel, false, nil
 	}
 
 	mappingModelName := requestModel
@@ -219,25 +224,27 @@ func applyModelMapping(c *gin.Context, requestModel string, modelMap map[string]
 	visitedModels := map[string]bool{
 		currentModel: true,
 	}
+	isMapped := false
 	for {
 		mappedModel, exists := modelMap[currentModel]
 		if !exists || mappedModel == "" {
 			break
 		}
+		isMapped = true
 		if visitedModels[mappedModel] {
 			if mappedModel == currentModel {
 				break
 			}
-			return "", fmt.Errorf("model_mapping_contains_cycle")
+			return "", false, fmt.Errorf("model_mapping_contains_cycle")
 		}
 		visitedModels[mappedModel] = true
 		currentModel = mappedModel
 	}
 
 	if isResponsesCompact {
-		return ratio_setting.WithCompactModelSuffix(currentModel), nil
+		return ratio_setting.WithCompactModelSuffix(currentModel), isMapped, nil
 	}
-	return currentModel, nil
+	return currentModel, isMapped, nil
 }
 
 // getModelFromRequest 从请求中读取模型信息
@@ -466,6 +473,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		common.SetContextKey(c, constant.ContextKeyTokenGroup, modelRequest.Group)
 	}
 
+	common.SetContextKey(c, constant.ContextKeyRequestModel, modelRequest.Model)
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") && modelRequest.Model != "" {
 		modelRequest.Model = ratio_setting.WithCompactModelSuffix(modelRequest.Model)
 	}
