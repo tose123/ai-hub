@@ -60,6 +60,19 @@ func TestResolveRoutedModelKeepsMappedFlagWhenFinalNameMatchesRequest(t *testing
 	require.True(t, mapped)
 }
 
+func TestResolveRoutedModelTreatsBuiltinSuffixAsExternalMapping(t *testing.T) {
+	response := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(response)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	routedModel, baseModel, mapped, err := resolveRoutedModel(ctx, "gpt-5.5-xhigh")
+
+	require.NoError(t, err)
+	require.Equal(t, "gpt-5.5-xhigh", routedModel)
+	require.Equal(t, "gpt-5.5", baseModel)
+	require.True(t, mapped)
+}
+
 func TestApplyModelMappingFollowsChain(t *testing.T) {
 	response := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(response)
@@ -96,4 +109,9 @@ func TestGetModelRequestPreservesCompactClientModel(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, mapped)
 	require.Equal(t, "model-b", strings.TrimSuffix(routedModel, ratio_setting.CompactModelSuffix))
+
+	routedModel, baseModel, mapped, err := resolveRoutedModel(ctx, ratio_setting.WithCompactModelSuffix("gpt-5.5-xhigh"))
+	require.NoError(t, err)
+	require.True(t, mapped)
+	require.Equal(t, "gpt-5.5", strings.TrimSuffix(baseModel, ratio_setting.CompactModelSuffix))
 }

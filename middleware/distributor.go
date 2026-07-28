@@ -45,7 +45,7 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, "Invalid model mapping format"))
 			return
 		}
-		externalModel := routedModel
+		externalModel := baseModel
 		if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") {
 			externalModel = strings.TrimSuffix(externalModel, ratio_setting.CompactModelSuffix)
 		}
@@ -193,7 +193,8 @@ func resolveRoutedModel(c *gin.Context, requestModel string) (string, string, bo
 	if err != nil {
 		return "", "", false, err
 	}
-	return routedModel, model_setting.BaseModelForMatching(routedModel), globalMapped || tokenMapped, nil
+	baseModel := model_setting.BaseModelForMatching(routedModel)
+	return routedModel, baseModel, globalMapped || tokenMapped || routedModel != baseModel, nil
 }
 
 func applyTokenModelMapping(c *gin.Context, requestModel string) (string, bool, error) {
