@@ -61,8 +61,9 @@ export function isTimingLogType(type: number): boolean {
 /**
  * Get log type configuration by type number
  */
-export function getLogTypeConfig(type: number) {
-  return LOG_TYPES.find((t) => t.value === type) || LOG_TYPES[0]
+export function getLogTypeConfig(type: number, shouldRetry = false) {
+  const config = LOG_TYPES.find((item) => item.value === type) || LOG_TYPES[0]
+  return shouldRetry ? { ...config, color: 'neutral' as const } : config
 }
 
 /**

@@ -295,7 +295,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       cell: ({ row }) => {
         const log = row.original
         const timestamp = row.getValue('created_at') as number
-        const config = getLogTypeConfig(log.type)
+        const config = getLogTypeConfig(log.type, log.should_retry === 1)
 
         return (
           <div className='flex min-w-0 flex-col gap-0.5'>
@@ -758,7 +758,9 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const hasMoreCount =
           segments.length - 1 + (other?.web_search_call_count || 0)
         let primaryToneClassName = 'text-foreground'
-        if (primary?.muted) {
+        if (log.should_retry === 1) {
+          primaryToneClassName = 'text-muted-foreground'
+        } else if (primary?.muted) {
           primaryToneClassName = 'text-muted-foreground/60'
         } else if (primary?.danger) {
           primaryToneClassName = 'text-red-600 dark:text-red-400'

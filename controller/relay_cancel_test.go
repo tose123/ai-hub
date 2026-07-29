@@ -517,6 +517,13 @@ func TestUserLogsHideShouldRetryEntriesAndStatsIgnoreThem(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(3), adminTotal)
 	require.Len(t, allLogs, 3)
+	retryEntries := 0
+	for _, log := range allLogs {
+		if log.ShouldRetry == 1 {
+			retryEntries++
+		}
+	}
+	require.Equal(t, 2, retryEntries)
 
 	stat, err := model.SumUsedQuota(model.LogTypeUnknown, 0, 0, "", "alice", "", 0, "", true)
 	require.NoError(t, err)

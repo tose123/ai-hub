@@ -42,6 +42,7 @@ export const usageLogSchema = z.object({
   token_id: z.number().default(0),
   group: z.string().default(''),
   ip: z.string().default(''),
+  should_retry: z.number().default(0),
   other: z.string().default(''),
   request_id: z.string().default(''),
   upstream_request_id: z.string().default(''),

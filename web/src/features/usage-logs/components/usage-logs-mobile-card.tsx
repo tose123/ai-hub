@@ -56,6 +56,7 @@ const logTypeRowTint: Record<number, string> = {
   [LOG_TYPE_ENUM.REFUND]:
     'bg-blue-50/30 dark:bg-blue-950/15 border-blue-200/50 dark:border-blue-900/30',
 }
+const retryRowTint = 'border-border/60 bg-muted/50 text-muted-foreground'
 
 interface UsageLogsMobileListProps<TData> {
   table: Table<TData>
@@ -156,14 +157,19 @@ function SummaryField<TData>({
 function MobileLogTimeStatus({
   createdAt,
   type,
+  shouldRetry,
 }: {
   createdAt: unknown
   type: unknown
+  shouldRetry: boolean
 }) {
   const { t } = useTranslation()
   const timestamp = typeof createdAt === 'number' ? createdAt : undefined
   const logType = typeof type === 'number' ? type : undefined
-  const config = getLogTypeConfig(logType ?? LOG_TYPE_ENUM.UNKNOWN)
+  const config = getLogTypeConfig(
+    logType ?? LOG_TYPE_ENUM.UNKNOWN,
+    shouldRetry
+  )
   const variant = config.color as StatusVariant
 
   return (
@@ -334,6 +340,7 @@ function CommonLogsCard<TData>({
           <MobileLogTimeStatus
             createdAt={rowData?.created_at}
             type={rowData?.type}
+            shouldRetry={rowData?.should_retry === 1}
           />
         </div>
         <SummaryField
@@ -493,7 +500,15 @@ export function UsageLogsMobileList<TData>({
         const logType = (row.original as Record<string, unknown>).type as
           | number
           | undefined
-        const tintClass = logType != null ? (logTypeRowTint[logType] ?? '') : ''
+        const shouldRetry =
+          logCategory === 'common' &&
+          (row.original as Record<string, unknown>).should_retry === 1
+        let tintClass = ''
+        if (shouldRetry) {
+          tintClass = retryRowTint
+        } else if (logType != null) {
+          tintClass = logTypeRowTint[logType] ?? ''
+        }
 
         return (
           <div

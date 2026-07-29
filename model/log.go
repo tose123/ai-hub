@@ -77,7 +77,7 @@ type Log struct {
 	Ip                string `json:"ip" gorm:"index;default:''"`
 	RequestId         string `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_logs_request_id;default:''"`
 	UpstreamRequestId string `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
-	ShouldRetry       int    `json:"-" gorm:"default:0;index"`
+	ShouldRetry       int    `json:"should_retry,omitempty" gorm:"default:0;index"`
 	Other             string `json:"other"`
 }
 
@@ -134,6 +134,7 @@ func applyUserVisibleLogFilter(tx *gorm.DB) *gorm.DB {
 func formatUserLogs(logs []*Log, startIdx int) {
 	for i := range logs {
 		logs[i].ChannelName = ""
+		logs[i].ShouldRetry = 0
 		var otherMap map[string]interface{}
 		otherMap, _ = common.StrToMap(logs[i].Other)
 		if otherMap != nil {
