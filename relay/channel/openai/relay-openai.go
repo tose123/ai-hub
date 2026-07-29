@@ -133,18 +133,44 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var toolCount int
 	var usage = &dto.Usage{}
 	var lastStreamData string
+	var lastStreamHasSubstantiveOutput bool
 	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
+	var pendingStreamData []string
+	var substantiveOutputSent bool
+	var nonRetryableFinishReason string
 	seenStreamToolCalls := make(map[string]struct{})
 	var streamFunctionCallNames []string
 
 	// 检查是否为音频模型
 	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
+	flushPendingStreamData := func() error {
+		for _, pendingData := range pendingStreamData {
+			if err := HandleStreamFormat(c, info, pendingData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+				return err
+			}
+		}
+		pendingStreamData = nil
+		return nil
+	}
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if lastStreamData != "" {
-			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-				common.SysLog("error handling stream format: " + err.Error())
-				sr.Error(err)
+			if lastStreamHasSubstantiveOutput && !substantiveOutputSent {
+				if err := flushPendingStreamData(); err != nil {
+					common.SysLog("error handling stream format: " + err.Error())
+					sr.Error(err)
+					return
+				}
+				substantiveOutputSent = true
+			}
+			if substantiveOutputSent {
+				if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+					common.SysLog("error handling stream format: " + err.Error())
+					sr.Error(err)
+					return
+				}
+			} else {
+				pendingStreamData = append(pendingStreamData, lastStreamData)
 			}
 		}
 		if len(data) > 0 {
@@ -154,6 +180,15 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 
 			lastStreamData = data
+			var chunk dto.ChatCompletionsStreamResponse
+			if err := common.UnmarshalJsonStr(data, &chunk); err == nil {
+				lastStreamHasSubstantiveOutput = chatStreamHasSubstantiveOutput(&chunk)
+				if reason := nonRetryableChatStreamReason(chunk.Choices); reason != "" {
+					nonRetryableFinishReason = reason
+				}
+			} else {
+				lastStreamHasSubstantiveOutput = true
+			}
 			collectStreamFunctionCallNames(data, seenStreamToolCalls, &streamFunctionCallNames)
 			if err := processTokenData(info.RelayMode, data, &responseTextBuilder, &toolCount); err != nil {
 				logger.LogError(c, "error processing stream token data: "+err.Error())
@@ -191,7 +226,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		sawExplicitStreamUsage = true
 	}
 
-	if !containStreamUsage && !sawExplicitStreamUsage {
+	if isAudioModel && !containStreamUsage && !sawExplicitStreamUsage {
 		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		usage.CompletionTokens += toolCount * 7
 	}
@@ -199,15 +234,33 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	applyUsagePostProcessing(info, usage, common.StringToByteSlice(lastStreamData))
 	normalizeTextUsage(usage)
 
-	if !hasValidTextUsage(usage) {
-		apiErr := newMissingTextUsageRetryableError(c)
-		if !common.HasClientVisibleResponse(c) {
+	usageValid := hasValidTextUsage(usage)
+	if isAudioModel {
+		usageValid = service.ValidUsage(usage)
+	}
+	if !usageValid {
+		if nonRetryableFinishReason != "" {
+			apiErr := newNonRetryableChatFinishError(nonRetryableFinishReason)
+			if substantiveOutputSent && nonRetryableChatStreamReason(lastStreamResponse.Choices) != "" {
+				if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+					return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+				}
+			}
 			return nil, apiErr
 		}
+		if !substantiveOutputSent {
+			return nil, newMissingTextUsageError(c, false)
+		}
+		apiErr := newMissingTextUsageError(c, true)
 		if err := writeChatStreamTerminalError(c, apiErr); err != nil {
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 		}
 		return nil, apiErr
+	}
+	if !substantiveOutputSent {
+		if err := flushPendingStreamData(); err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		}
 	}
 
 	if info.RelayFormat == types.RelayFormatOpenAI && shouldSendLastResp {
@@ -498,12 +551,14 @@ func OaiBufferedStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 	if response.Model == "" {
 		response.Model = info.UpstreamModelName
 	}
-	if !service.ValidUsage(usage) {
+	if !service.ValidUsage(usage) && strings.Contains(strings.ToLower(info.UpstreamModelName), "audio") {
 		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		usage.CompletionTokens += toolCount * 7
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	}
-	response.Usage = *usage
+	if usage != nil {
+		response.Usage = *usage
+	}
 	responseBody, err := common.Marshal(response)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
@@ -564,7 +619,8 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 	usageModified := false
-	if simpleResponse.Usage.PromptTokens == 0 {
+	isAudioModel := strings.Contains(strings.ToLower(info.UpstreamModelName), "audio")
+	if isAudioModel && simpleResponse.Usage.PromptTokens == 0 {
 		completionTokens := simpleResponse.Usage.CompletionTokens
 		if completionTokens == 0 {
 			for _, choice := range simpleResponse.Choices {
@@ -582,8 +638,15 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 
 	applyUsagePostProcessing(info, &simpleResponse.Usage, responseBody)
 	normalizeTextUsage(&simpleResponse.Usage)
-	if !hasValidTextUsage(&simpleResponse.Usage) {
-		return nil, newMissingTextUsageRetryableError(c)
+	usageValid := hasValidTextUsage(&simpleResponse.Usage)
+	if isAudioModel {
+		usageValid = service.ValidUsage(&simpleResponse.Usage)
+	}
+	if !usageValid {
+		if reason := nonRetryableTextResponseReason(simpleResponse.Choices); reason != "" {
+			return nil, newNonRetryableChatFinishError(reason)
+		}
+		return nil, newMissingTextUsageError(c, false)
 	}
 
 	switch info.RelayFormat {

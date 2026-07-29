@@ -2,7 +2,9 @@ package openai
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -37,15 +39,160 @@ func normalizeTextUsage(usage *dto.Usage) *dto.Usage {
 
 func hasValidTextUsage(usage *dto.Usage) bool {
 	usage = normalizeTextUsage(usage)
-	return usage != nil && usage.PromptTokens+usage.CompletionTokens > 0
+	return usage != nil && usage.CompletionTokens > 0
 }
 
-func newMissingTextUsageRetryableError(c *gin.Context) *types.NewAPIError {
+func newMissingTextUsageError(c *gin.Context, streamStarted bool) *types.NewAPIError {
 	service.InvalidateCurrentChannelAffinityCache(c)
+	message := "上游没有返回计费信息，无法扣费（可能是上游超时）"
+	if streamStarted {
+		message = "Retryable error | please retry later | try again later | rate limit exceeded | temporarily overloaded | Upstream returned no valid billing information | Selected model is at capacity. Please try a different model."
+	}
 	return types.NewErrorWithStatusCode(
-		errors.New("Retryable error | please retry later | try again later | rate limit exceeded | temporarily overloaded | Upstream returned no valid billing information | Selected model is at capacity. Please try a different model."),
+		errors.New(message),
 		types.ErrorCodeBadResponse,
 		http.StatusInternalServerError,
+	)
+}
+
+func chatStreamHasSubstantiveOutput(chunk *dto.ChatCompletionsStreamResponse) bool {
+	if chunk == nil {
+		return false
+	}
+	for _, choice := range chunk.Choices {
+		if choice.Delta.GetContentString() != "" || choice.Delta.GetReasoningContent() != "" ||
+			(choice.Delta.Refusal != nil && *choice.Delta.Refusal != "") {
+			return true
+		}
+		if choice.Delta.FunctionCall != nil &&
+			(choice.Delta.FunctionCall.Name != "" || choice.Delta.FunctionCall.Arguments != "") {
+			return true
+		}
+		for _, toolCall := range choice.Delta.ToolCalls {
+			if toolCall.Function.Name != "" || toolCall.Function.Arguments != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func responsesStreamHasSubstantiveOutput(event *dto.ResponsesStreamResponse) bool {
+	if event == nil {
+		return false
+	}
+	switch event.Type {
+	case "response.created", "response.in_progress", "response.queued",
+		"response.completed", "response.done", "response.failed", "response.incomplete",
+		"response.cancelled", "response.canceled", "response.error":
+		return false
+	case "response.output_text.delta", "response.reasoning_summary_text.delta",
+		"response.reasoning_text.delta", "response.function_call_arguments.delta",
+		"response.custom_tool_call_input.delta":
+		return event.Delta != ""
+	case dto.ResponsesOutputTypeItemAdded, dto.ResponsesOutputTypeItemDone:
+		return responsesOutputHasSubstantiveOutput(event.Item)
+	case "response.content_part.added", "response.content_part.done",
+		"response.reasoning_summary_part.added", "response.reasoning_summary_part.done":
+		return event.Part != nil && event.Part.Text != ""
+	default:
+		return true
+	}
+}
+
+func responsesOutputHasSubstantiveOutput(output *dto.ResponsesOutput) bool {
+	if output == nil {
+		return false
+	}
+	if output.Name != "" || output.ArgumentsString() != "" || output.Result != "" {
+		return true
+	}
+	for _, content := range output.Content {
+		if content.Text != "" || content.Refusal != "" {
+			return true
+		}
+	}
+	for _, summary := range output.Summary {
+		if summary.Text != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func nonRetryableChatStreamReason(choices []dto.ChatCompletionsStreamResponseChoice) string {
+	for _, choice := range choices {
+		if choice.Delta.Refusal != nil && strings.TrimSpace(*choice.Delta.Refusal) != "" {
+			return "content_policy_refusal"
+		}
+		if choice.FinishReason == nil {
+			continue
+		}
+		reason := strings.ToLower(strings.TrimSpace(*choice.FinishReason))
+		if reason == "content_filter" || reason == "length" || reason == "max_output_tokens" {
+			return reason
+		}
+	}
+	return ""
+}
+
+func nonRetryableTextResponseReason(choices []dto.OpenAITextResponseChoice) string {
+	for _, choice := range choices {
+		if choice.Message.Refusal != nil && strings.TrimSpace(*choice.Message.Refusal) != "" {
+			return "content_policy_refusal"
+		}
+		reason := strings.ToLower(strings.TrimSpace(choice.FinishReason))
+		if reason == "content_filter" || reason == "length" || reason == "max_output_tokens" {
+			return reason
+		}
+	}
+	return ""
+}
+
+func nonRetryableResponsesError(response *dto.OpenAIResponsesResponse) *types.NewAPIError {
+	if response == nil {
+		return nil
+	}
+	if oaiErr := response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
+		errorType := strings.ToLower(strings.TrimSpace(oaiErr.Type))
+		code := strings.ToLower(strings.TrimSpace(fmt.Sprint(oaiErr.Code)))
+		if errorType == "invalid_request_error" || code == "content_filter" || code == "content_policy_violation" {
+			return types.WithOpenAIError(*oaiErr, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+	}
+	for _, output := range response.Output {
+		for _, content := range output.Content {
+			if strings.TrimSpace(content.Refusal) != "" {
+				return types.NewOpenAIError(
+					errors.New("response refused by content policy"),
+					types.ErrorCodeBadResponse,
+					http.StatusBadRequest,
+					types.ErrOptionWithSkipRetry(),
+				)
+			}
+		}
+	}
+	if response.IncompleteDetails == nil {
+		return nil
+	}
+	reason := strings.ToLower(strings.TrimSpace(response.IncompleteDetails.Reason))
+	if reason != "content_filter" && reason != "max_output_tokens" {
+		return nil
+	}
+	return types.NewOpenAIError(
+		fmt.Errorf("responses stream ended with %s", reason),
+		types.ErrorCodeBadResponse,
+		http.StatusBadRequest,
+		types.ErrOptionWithSkipRetry(),
+	)
+}
+
+func newNonRetryableChatFinishError(reason string) *types.NewAPIError {
+	return types.NewOpenAIError(
+		fmt.Errorf("chat completion ended with %s", reason),
+		types.ErrorCodeBadResponse,
+		http.StatusBadRequest,
+		types.ErrOptionWithSkipRetry(),
 	)
 }
 

@@ -53,15 +53,12 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		chatResp.Id = chatID
 	}
 	usage := chatResult.Usage
-
-	if usage == nil || usage.TotalTokens == 0 {
-		text := service.ExtractOutputTextFromResponses(&responsesResp)
-		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
-		chatResp.Usage = *usage
-	}
 	normalizeTextUsage(usage)
 	if !hasValidTextUsage(usage) {
-		return nil, newMissingTextUsageRetryableError(c)
+		if apiErr := nonRetryableResponsesError(&responsesResp); apiErr != nil {
+			return nil, apiErr
+		}
+		return nil, newMissingTextUsageError(c, false)
 	}
 
 	responseValue := any(chatResp)
@@ -279,7 +276,9 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	streamErr := (*types.NewAPIError)(nil)
-	sawExplicitFinalUsage := false
+	var pendingResults []relayconvert.ResponseResult
+	var substantiveOutputSent bool
+	var nonRetryableTerminalError *types.NewAPIError
 
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo == nil {
 		info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
@@ -343,6 +342,15 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			return false
 		}
 	}
+	flushPendingResults := func() bool {
+		for _, result := range pendingResults {
+			if !sendStreamResult(result) {
+				return false
+			}
+		}
+		pendingResults = nil
+		return true
+	}
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if streamErr != nil {
@@ -356,11 +364,14 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			sr.Error(err)
 			return
 		}
-		if streamResp.Response != nil && streamResp.Response.Usage != nil {
-			sawExplicitFinalUsage = true
-		}
-
-		if streamResp.Type == "response.error" || streamResp.Type == "response.failed" {
+		if streamResp.Type == "response.error" || streamResp.Type == "response.failed" ||
+			streamResp.Type == "response.incomplete" || streamResp.Type == "response.cancelled" ||
+			streamResp.Type == "response.canceled" {
+			if apiErr := nonRetryableResponsesError(streamResp.Response); apiErr != nil {
+				streamErr = apiErr
+				sr.Stop(streamErr)
+				return
+			}
 			if streamResp.Response != nil {
 				if oaiErr := streamResp.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
 					streamErr = types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)
@@ -372,6 +383,9 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			sr.Stop(streamErr)
 			return
 		}
+		if streamResp.Type == "response.completed" || streamResp.Type == "response.done" {
+			nonRetryableTerminalError = nonRetryableResponsesError(streamResp.Response)
+		}
 
 		results, err := relayconvert.ConvertStreamResponseChunk(c, info, state, &streamResp)
 		if err != nil {
@@ -379,33 +393,63 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			sr.Stop(streamErr)
 			return
 		}
-		for _, result := range results {
-			if !sendStreamResult(result) {
-				sr.Stop(streamErr)
-				return
+		if responsesStreamHasSubstantiveOutput(&streamResp) {
+			if !substantiveOutputSent {
+				if !flushPendingResults() {
+					sr.Stop(streamErr)
+					return
+				}
+				substantiveOutputSent = true
 			}
+			for _, result := range results {
+				if !sendStreamResult(result) {
+					sr.Stop(streamErr)
+					return
+				}
+			}
+		} else if substantiveOutputSent {
+			for _, result := range results {
+				if !sendStreamResult(result) {
+					sr.Stop(streamErr)
+					return
+				}
+			}
+		} else {
+			pendingResults = append(pendingResults, results...)
 		}
 	})
 
 	if streamErr != nil {
+		if substantiveOutputSent {
+			if err := writeChatStreamTerminalError(c, streamErr); err != nil {
+				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			}
+		}
 		return nil, streamErr
 	}
 
 	usage := state.Usage()
-	if (usage == nil || usage.TotalTokens == 0) && !sawExplicitFinalUsage {
-		usage = service.ResponseText2Usage(c, state.UsageText(), info.UpstreamModelName, info.GetEstimatePromptTokens())
-		state.SetUsage(usage)
-	}
 	normalizeTextUsage(usage)
 	if !hasValidTextUsage(usage) {
-		apiErr := newMissingTextUsageRetryableError(c)
-		if !common.HasClientVisibleResponse(c) {
-			return nil, apiErr
+		if nonRetryableTerminalError != nil {
+			if substantiveOutputSent {
+				if err := writeChatStreamTerminalError(c, nonRetryableTerminalError); err != nil {
+					return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+				}
+			}
+			return nil, nonRetryableTerminalError
 		}
+		if !substantiveOutputSent {
+			return nil, newMissingTextUsageError(c, false)
+		}
+		apiErr := newMissingTextUsageError(c, true)
 		if err := writeChatStreamTerminalError(c, apiErr); err != nil {
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 		}
 		return nil, apiErr
+	}
+	if !substantiveOutputSent && !flushPendingResults() {
+		return nil, streamErr
 	}
 
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo != nil {

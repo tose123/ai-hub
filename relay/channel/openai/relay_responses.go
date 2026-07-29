@@ -127,8 +127,15 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		}
 	}
 	normalizeTextUsage(&usage)
-	if !hasValidTextUsage(&usage) {
-		return nil, newMissingTextUsageRetryableError(c)
+	usageValid := hasValidTextUsage(&usage)
+	if responsesResponse.HasImageGenerationCall() {
+		usageValid = service.ValidUsage(&usage)
+	}
+	if !usageValid {
+		if apiErr := nonRetryableResponsesError(&responsesResponse); apiErr != nil {
+			return nil, apiErr
+		}
+		return nil, newMissingTextUsageError(c, false)
 	}
 
 	// 写入新的 response body
@@ -183,10 +190,22 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	var chatCreatedAt int64
 	var chatModel string
 	var finalCompletedEvent *dto.ResponsesStreamResponse
-	var sawExplicitUsage bool
-	var nonBillableTerminalSeen bool
+	var terminalEvent *dto.ResponsesStreamResponse
+	var terminalError *types.NewAPIError
+	var pendingEvents []struct {
+		event dto.ResponsesStreamResponse
+		data  string
+	}
+	var substantiveOutputSent bool
+	var hasImageGenerationOutput bool
 	imageCounter := &relaycommon.ImageGenerationCallCounter{}
 	imageCommitted := false
+	flushPendingEvents := func() {
+		for _, pending := range pendingEvents {
+			sendResponsesStreamData(c, pending.event, pending.data)
+		}
+		pendingEvents = nil
+	}
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -214,6 +233,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				return
 			}
 			if handled {
+				if common.HasClientVisibleResponse(c) {
+					substantiveOutputSent = true
+				}
 				return
 			}
 			err = fmt.Errorf("responses stream event missing type")
@@ -227,8 +249,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			streamCopy := streamResponse
 			finalCompletedEvent = &streamCopy
 			if streamResponse.Response != nil {
+				if streamResponse.Response.HasImageGenerationCall() {
+					hasImageGenerationOutput = true
+				}
 				if streamResponse.Response.Usage != nil {
-					sawExplicitUsage = true
 					if streamResponse.Response.Usage.InputTokens != 0 {
 						usage.PromptTokens = streamResponse.Response.Usage.InputTokens
 					}
@@ -262,14 +286,20 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				imageCommitted = true
 			}
 			return
-		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
-			nonBillableTerminalSeen = true
+		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled", "response.error":
+			streamCopy := streamResponse
+			terminalEvent = &streamCopy
+			terminalError = nonRetryableResponsesError(streamResponse.Response)
+			if terminalError == nil && streamResponse.Response != nil {
+				if oaiErr := streamResponse.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
+					terminalError = types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)
+				}
+			}
 			if !imageCommitted {
 				imageCounter.Reset()
 				imageCounter.Commit(info)
 				imageCommitted = true
 			}
-			sendResponsesStreamData(c, streamResponse, data)
 			return
 		case "response.output_text.delta":
 			// 处理输出文本
@@ -284,39 +314,83 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				case dto.BuildInCallFunctionCall:
 					info.CountBillableToolCall(dto.BuildInCallFunctionCall, streamResponse.Item.Name)
 				case dto.ResponsesOutputTypeImageGenerationCall:
+					hasImageGenerationOutput = true
 					if !imageCommitted {
 						imageCounter.Observe(streamResponse.Item, streamResponse.OutputIndex)
 					}
 				}
 			}
 		}
-		sendResponsesStreamData(c, streamResponse, data)
-	})
-	if nonBillableTerminalSeen {
-		return usage, nil
-	}
-
-	if usage.CompletionTokens == 0 && !sawExplicitUsage {
-		// 计算输出文本的 token 数量
-		tempStr := responseTextBuilder.String()
-		if len(tempStr) > 0 {
-			// 非正常结束，使用输出文本的 token 数量
-			completionTokens := service.CountTextToken(tempStr, info.UpstreamModelName)
-			usage.CompletionTokens = completionTokens
+		if responsesStreamHasSubstantiveOutput(&streamResponse) {
+			if !substantiveOutputSent {
+				flushPendingEvents()
+				substantiveOutputSent = true
+			}
+			sendResponsesStreamData(c, streamResponse, data)
+		} else if substantiveOutputSent {
+			sendResponsesStreamData(c, streamResponse, data)
+		} else {
+			pendingEvents = append(pendingEvents, struct {
+				event dto.ResponsesStreamResponse
+				data  string
+			}{event: streamResponse, data: data})
 		}
-	}
-
-	if usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
-		usage.PromptTokens = info.GetEstimatePromptTokens()
+	})
+	if terminalEvent != nil {
+		if hasImageGenerationOutput {
+			sendResponsesStreamData(c, *terminalEvent, dataFromResponsesEvent(*terminalEvent))
+			return usage, nil
+		}
+		if terminalError != nil && types.IsSkipRetryError(terminalError) {
+			if substantiveOutputSent {
+				sendResponsesStreamData(c, *terminalEvent, dataFromResponsesEvent(*terminalEvent))
+			}
+			return nil, terminalError
+		}
+		if !substantiveOutputSent {
+			if terminalError != nil {
+				return nil, terminalError
+			}
+			return nil, newMissingTextUsageError(c, false)
+		}
+		apiErr := newMissingTextUsageError(c, true)
+		responseID := ""
+		createdAt := info.StartTime.Unix()
+		model := info.UpstreamModelName
+		if terminalEvent.Response != nil {
+			responseID = terminalEvent.Response.ID
+			if terminalEvent.Response.CreatedAt != 0 {
+				createdAt = int64(terminalEvent.Response.CreatedAt)
+			}
+			if terminalEvent.Response.Model != "" {
+				model = terminalEvent.Response.Model
+			}
+		}
+		if err := writeResponsesFailedEvent(c, responseID, createdAt, model, apiErr); err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		}
+		return nil, apiErr
 	}
 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	normalizeTextUsage(usage)
-	if !hasValidTextUsage(usage) {
-		apiErr := newMissingTextUsageRetryableError(c)
-		if !common.HasClientVisibleResponse(c) {
-			return nil, apiErr
+	usageValid := hasValidTextUsage(usage)
+	if hasImageGenerationOutput {
+		usageValid = service.ValidUsage(usage)
+	}
+	if !usageValid {
+		if finalCompletedEvent != nil {
+			if apiErr := nonRetryableResponsesError(finalCompletedEvent.Response); apiErr != nil {
+				if substantiveOutputSent {
+					sendResponsesStreamData(c, *finalCompletedEvent, dataFromResponsesEvent(*finalCompletedEvent))
+				}
+				return nil, apiErr
+			}
 		}
+		if !substantiveOutputSent {
+			return nil, newMissingTextUsageError(c, false)
+		}
+		apiErr := newMissingTextUsageError(c, true)
 		if chatCompatUsed {
 			if chatResponseID == "" {
 				chatResponseID = helper.GetResponseID(c)
@@ -348,6 +422,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			}
 		}
 		return nil, apiErr
+	}
+	if !substantiveOutputSent {
+		flushPendingEvents()
 	}
 
 	if chatCompatUsed && !responsesCompletedSeen {

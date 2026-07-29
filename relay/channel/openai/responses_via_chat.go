@@ -47,10 +47,12 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		return nil, types.NewOpenAIError(fmt.Errorf("expected OpenAI responses response, got %T", convertResult.Value), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 	usage := convertResult.Usage
-	if usage == nil || usage.TotalTokens == 0 {
-		text := service.ExtractOutputTextFromResponses(responsesResp)
-		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
-		responsesResp.Usage = relayconvert.UsageFromChatUsage(usage)
+	normalizeTextUsage(usage)
+	if !hasValidTextUsage(usage) {
+		if reason := nonRetryableTextResponseReason(chatResp.Choices); reason != "" {
+			return nil, newNonRetryableChatFinishError(reason)
+		}
+		return nil, newMissingTextUsageError(c, false)
 	}
 
 	responseBody, err := common.Marshal(responsesResp)
@@ -77,6 +79,9 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	streamErr := (*types.NewAPIError)(nil)
+	var pendingEvents []relayconvert.ChatToResponsesStreamEvent
+	var substantiveOutputSent bool
+	var nonRetryableFinishReason string
 
 	sendEvent := func(event relayconvert.ChatToResponsesStreamEvent) bool {
 		data, err := common.Marshal(event.Payload)
@@ -84,7 +89,19 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 			return false
 		}
-		helper.ResponseChunkData(c, dto.ResponsesStreamResponse{Type: event.Type}, string(data))
+		if err := helper.ResponseChunkData(c, dto.ResponsesStreamResponse{Type: event.Type}, string(data)); err != nil {
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			return false
+		}
+		return true
+	}
+	flushPendingEvents := func() bool {
+		for _, event := range pendingEvents {
+			if !sendEvent(event) {
+				return false
+			}
+		}
+		pendingEvents = nil
 		return true
 	}
 
@@ -109,6 +126,9 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			sr.Error(err)
 			return
 		}
+		if reason := nonRetryableChatStreamReason(chunk.Choices); reason != "" {
+			nonRetryableFinishReason = reason
+		}
 
 		results, err := relayconvert.ConvertStreamResponseChunk(c, info, state, &chunk)
 		if err != nil {
@@ -116,6 +136,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			sr.Stop(streamErr)
 			return
 		}
+		events := make([]relayconvert.ChatToResponsesStreamEvent, 0, len(results))
 		for _, result := range results {
 			event, ok := result.Value.(relayconvert.ChatToResponsesStreamEvent)
 			if !ok {
@@ -123,21 +144,66 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				sr.Stop(streamErr)
 				return
 			}
-			if !sendEvent(event) {
-				sr.Stop(streamErr)
-				return
+			events = append(events, event)
+		}
+		if chatStreamHasSubstantiveOutput(&chunk) {
+			if !substantiveOutputSent {
+				if !flushPendingEvents() {
+					sr.Stop(streamErr)
+					return
+				}
+				substantiveOutputSent = true
 			}
+			for _, event := range events {
+				if !sendEvent(event) {
+					sr.Stop(streamErr)
+					return
+				}
+			}
+		} else if substantiveOutputSent {
+			for _, event := range events {
+				if !sendEvent(event) {
+					sr.Stop(streamErr)
+					return
+				}
+			}
+		} else {
+			pendingEvents = append(pendingEvents, events...)
 		}
 	})
 
 	if streamErr != nil {
+		if substantiveOutputSent {
+			if err := writeResponsesFailedEvent(c, responseID, info.StartTime.Unix(), info.UpstreamModelName, streamErr); err != nil {
+				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			}
+		}
 		return nil, streamErr
 	}
 
 	usage := state.Usage()
-	if usage == nil || usage.TotalTokens == 0 {
-		usage = service.ResponseText2Usage(c, state.UsageText(), info.UpstreamModelName, info.GetEstimatePromptTokens())
-		state.SetUsage(usage)
+	normalizeTextUsage(usage)
+	if !hasValidTextUsage(usage) {
+		if nonRetryableFinishReason != "" {
+			apiErr := newNonRetryableChatFinishError(nonRetryableFinishReason)
+			if substantiveOutputSent {
+				if err := writeResponsesFailedEvent(c, responseID, info.StartTime.Unix(), info.UpstreamModelName, apiErr); err != nil {
+					return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+				}
+			}
+			return nil, apiErr
+		}
+		if !substantiveOutputSent {
+			return nil, newMissingTextUsageError(c, false)
+		}
+		apiErr := newMissingTextUsageError(c, true)
+		if err := writeResponsesFailedEvent(c, responseID, info.StartTime.Unix(), info.UpstreamModelName, apiErr); err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		}
+		return nil, apiErr
+	}
+	if !substantiveOutputSent && !flushPendingEvents() {
+		return nil, streamErr
 	}
 
 	finalResults, err := relayconvert.FinalizeStreamResponse(c, info, state)
