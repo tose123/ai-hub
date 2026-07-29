@@ -49,6 +49,7 @@ func TestApplyChannelAffinityOverrideTemplate_MergeTemplate(t *testing.T) {
 		KeyHint:        "abcd...wxyz",
 		KeyFingerprint: "abcd1234",
 	})
+	ctx.Set(ginKeyChannelAffinityCacheHit, false)
 	base := map[string]interface{}{
 		"temperature": 0.7,
 		"max_tokens":  2000,
@@ -72,6 +73,10 @@ func TestApplyChannelAffinityOverrideTemplate_MergeTemplate(t *testing.T) {
 	require.Equal(t, true, overrideInfo["applied"])
 	require.Equal(t, "rule-with-template", overrideInfo["rule_name"])
 	require.EqualValues(t, 2, overrideInfo["param_override_keys"])
+
+	adminInfo := map[string]interface{}{}
+	AppendChannelAffinityAdminInfo(ctx, adminInfo)
+	require.Equal(t, false, info["cache_hit"])
 }
 
 func TestApplyChannelAffinityOverrideTemplate_MergeOperations(t *testing.T) {
@@ -331,4 +336,10 @@ func TestChannelAffinityHitCodexTemplatePassHeadersEffective(t *testing.T) {
 	require.False(t, exists)
 	_, exists = info.RuntimeHeadersOverride["x-codex-turn-metadata"]
 	require.False(t, exists)
+
+	adminInfo := map[string]interface{}{}
+	AppendChannelAffinityAdminInfo(ctx, adminInfo)
+	affinityInfo, ok := adminInfo["channel_affinity"].(map[string]interface{})
+	require.True(t, ok)
+	require.Equal(t, true, affinityInfo["cache_hit"])
 }

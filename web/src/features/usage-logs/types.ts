@@ -82,6 +82,7 @@ export type LogFilters = CommonLogFilters | DrawingLogFilters | TaskLogFilters
  * Parsed data from the 'other' field in usage logs
  */
 export interface ChannelAffinityInfo {
+  cache_hit?: boolean
   rule_name?: string
   selected_group?: string
   key_source?: string

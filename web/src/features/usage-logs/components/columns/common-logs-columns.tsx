@@ -337,6 +337,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
           const other = parseLogOther(log.other)
           const affinity = other?.admin_info?.channel_affinity
+          let cacheHitLabel = '-'
+          if (affinity?.cache_hit === true) {
+            cacheHitLabel = t('Yes')
+          } else if (affinity?.cache_hit === false) {
+            cacheHitLabel = t('No')
+          }
           const rawUseChannel = other?.admin_info?.use_channel ?? []
           const useChannel = Array.isArray(rawUseChannel)
             ? rawUseChannel.map(String).filter(Boolean)
@@ -463,6 +469,9 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                         <p className='font-medium'>{t('Channel Affinity')}</p>
                         <p>
                           {t('Rule')}: {affinity.rule_name || '-'}
+                        </p>
+                        <p>
+                          {t('Cache Hit')}: {cacheHitLabel}
                         </p>
                         <p>
                           {t('Group')}:{' '}

@@ -109,11 +109,13 @@ func TestRecordChannelAffinitySameChannelDoesNotRefreshTTL(t *testing.T) {
 	cache := GetChannelAffinityCacheForTest()
 	cacheKey := newChannelAffinityRecordCacheKey(t)
 	ctx := buildChannelAffinityRecordContextForTest(cacheKey, 1)
+	ctx.Set(ginKeyChannelAffinityCacheHit, true)
+	ctx.Set(ginKeyChannelAffinitySelected, true)
+	ctx.Set("channel_id", 101)
+	require.NoError(t, cache.SetWithTTL(cacheKey, 101, time.Second))
 
+	time.Sleep(1100 * time.Millisecond)
 	RecordChannelAffinity(ctx, 101)
-	time.Sleep(800 * time.Millisecond)
-	RecordChannelAffinity(ctx, 101)
-	time.Sleep(450 * time.Millisecond)
 
 	_, found, err := cache.Get(cacheKey)
 	require.NoError(t, err)
@@ -123,13 +125,19 @@ func TestRecordChannelAffinitySameChannelDoesNotRefreshTTL(t *testing.T) {
 func TestRecordChannelAffinityDifferentChannelRefreshesTTL(t *testing.T) {
 	withChannelAffinityRecordSetting(t)
 
+	setting := operation_setting.GetChannelAffinitySetting()
+	setting.SwitchOnSuccess = true
+
 	cache := GetChannelAffinityCacheForTest()
 	cacheKey := newChannelAffinityRecordCacheKey(t)
 	ctx := buildChannelAffinityRecordContextForTest(cacheKey, 1)
+	ctx.Set(ginKeyChannelAffinityCacheHit, true)
+	ctx.Set(ginKeyChannelAffinitySelected, true)
+	ctx.Set("channel_id", 202)
+	require.NoError(t, cache.SetWithTTL(cacheKey, 101, time.Second))
 
-	RecordChannelAffinity(ctx, 101)
 	time.Sleep(800 * time.Millisecond)
-	RecordChannelAffinity(ctx, 202)
+	RecordChannelAffinity(ctx, 101)
 	time.Sleep(450 * time.Millisecond)
 
 	channelID, found, err := cache.Get(cacheKey)

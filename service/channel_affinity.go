@@ -23,6 +23,7 @@ const (
 	ginKeyChannelAffinityCacheKey   = "channel_affinity_cache_key"
 	ginKeyChannelAffinityTTLSeconds = "channel_affinity_ttl_seconds"
 	ginKeyChannelAffinityGeneration = "channel_affinity_generation"
+	ginKeyChannelAffinityCacheHit   = "channel_affinity_cache_hit"
 	ginKeyChannelAffinityMeta       = "channel_affinity_meta"
 	ginKeyChannelAffinityLogInfo    = "channel_affinity_log_info"
 	ginKeyChannelAffinitySkipRetry  = "channel_affinity_skip_retry_on_failure"
@@ -629,6 +630,7 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 			common.SysError(fmt.Sprintf("channel affinity cache get failed: key=%s, err=%v", cacheKeyFull, err))
 			return 0, false
 		}
+		c.Set(ginKeyChannelAffinityCacheHit, found)
 		if found {
 			return channelID, true
 		}
@@ -747,6 +749,13 @@ func AppendChannelAffinityAdminInfo(c *gin.Context, adminInfo map[string]interfa
 	if !ok || anyInfo == nil {
 		return
 	}
+	if info, ok := anyInfo.(map[string]interface{}); ok {
+		if cacheHitAny, exists := c.Get(ginKeyChannelAffinityCacheHit); exists {
+			if cacheHit, valid := cacheHitAny.(bool); valid {
+				info["cache_hit"] = cacheHit
+			}
+		}
+	}
 	adminInfo["channel_affinity"] = anyInfo
 }
 
@@ -758,8 +767,18 @@ func RecordChannelAffinity(c *gin.Context, channelID int) {
 	if setting == nil || !setting.Enabled {
 		return
 	}
+	successChannelID := 0
+	if c != nil {
+		successChannelID = c.GetInt("channel_id")
+		if cacheHitAny, ok := c.Get(ginKeyChannelAffinityCacheHit); ok {
+			cacheHit, valid := cacheHitAny.(bool)
+			if valid && cacheHit && channelAffinitySelected(c) && successChannelID == channelID {
+				return
+			}
+		}
+	}
 	if setting.SwitchOnSuccess && c != nil {
-		if successChannelID := c.GetInt("channel_id"); successChannelID > 0 {
+		if successChannelID > 0 {
 			channelID = successChannelID
 		}
 	}
