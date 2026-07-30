@@ -1,4 +1,4 @@
 interface:
   display_name: "同步 newapi main"
-  short_description: "拉取上游 newapi/main、合并并总结测试重点"
-  default_prompt: "使用 $newapi-main-sync 拉取 newapi/main 并合并到本地 main；如果与本地 main 存在同功能冲突，默认保留本地 main 行为，只在确实无法安全落地时再列出方案给我选择。同步完成后总结前后端主要更新点，并提醒我需要重点测试的内容。"
+  short_description: "安全同步 newapi/main 并核验本地功能未被覆盖"
+  default_prompt: "使用 $newapi-main-sync 同步 newapi/main 到本地 main，审计文本和语义冲突以及 merge 后修复，逐项确认本地功能仍被保留，再总结更新与验证结果。"
