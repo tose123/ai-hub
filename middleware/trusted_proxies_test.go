@@ -85,7 +85,7 @@ func TestConfigureTrustedProxiesNoneDisablesForwardedHeaders(t *testing.T) {
 	assert.Equal(t, "127.0.0.1", clientIP)
 }
 
-func TestConfigureTrustedProxiesAcceptsTrimmedIPsAndCIDRs(t *testing.T) {
+func TestConfigureTrustedProxiesExtendsDefaultsWithTrimmedIPsAndCIDRs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("TRUSTED_PROXIES", " 192.0.2.0/24, 198.51.100.30 ")
 	router := newClientIPRouter()
@@ -100,8 +100,8 @@ func TestConfigureTrustedProxiesAcceptsTrimmedIPsAndCIDRs(t *testing.T) {
 	untrustedClientIP := requestClientIP(router, "198.51.100.20:12345", "203.0.113.22")
 	assert.Equal(t, "198.51.100.20", untrustedClientIP)
 
-	defaultProxyIP := requestClientIP(router, "127.0.0.1:12345", "203.0.113.23")
-	assert.Equal(t, "127.0.0.1", defaultProxyIP, "an explicit list must replace, not extend, the compatibility defaults")
+	defaultProxyIP := requestClientIP(router, "172.20.0.1:12345", "203.0.113.23")
+	assert.Equal(t, "203.0.113.23", defaultProxyIP, "an explicit list must extend the compatibility defaults")
 }
 
 func TestConfigureTrustedProxiesRejectsInvalidConfiguration(t *testing.T) {

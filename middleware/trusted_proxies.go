@@ -45,14 +45,15 @@ var defaultTrustedProxyCIDRs = []string{
 func ConfigureTrustedProxies(engine *gin.Engine) error {
 	rawTrustedProxies := strings.TrimSpace(os.Getenv("TRUSTED_PROXIES"))
 	if rawTrustedProxies == "" {
-		log.Print("WARNING: TRUSTED_PROXIES is unset or blank; trusting loopback, RFC 1918, and IPv6 ULA proxy addresses for compatibility. Set TRUSTED_PROXIES=none to trust no proxies, or configure explicit proxy IPs/CIDRs to replace these defaults.")
+		log.Print("WARNING: TRUSTED_PROXIES is unset or blank; trusting loopback, RFC 1918, and IPv6 ULA proxy addresses for compatibility. Set TRUSTED_PROXIES=none to trust no proxies, or configure explicit proxy IPs/CIDRs to extend these defaults.")
 		return engine.SetTrustedProxies(defaultTrustedProxyCIDRs)
 	}
 	if strings.EqualFold(rawTrustedProxies, "none") {
 		return engine.SetTrustedProxies(nil)
 	}
 
-	trustedProxies := make([]string, 0)
+	trustedProxies := append([]string(nil), defaultTrustedProxyCIDRs...)
+	configuredProxyCount := 0
 	for part := range strings.SplitSeq(rawTrustedProxies, ",") {
 		trustedProxy := strings.TrimSpace(part)
 		if trustedProxy == "" {
@@ -62,8 +63,9 @@ func ConfigureTrustedProxies(engine *gin.Engine) error {
 			return errors.New("TRUSTED_PROXIES=none must be used alone")
 		}
 		trustedProxies = append(trustedProxies, trustedProxy)
+		configuredProxyCount++
 	}
-	if len(trustedProxies) == 0 {
+	if configuredProxyCount == 0 {
 		return errors.New("TRUSTED_PROXIES does not contain an IP address or CIDR")
 	}
 	if err := engine.SetTrustedProxies(trustedProxies); err != nil {
