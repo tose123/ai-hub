@@ -495,7 +495,11 @@ func recordRelayErrorLog(c *gin.Context, err *types.NewAPIError) int {
 		if promptTokens == 0 {
 			promptTokens = common.GetContextKeyInt(c, constant.ContextKeyPromptTokens)
 		}
-		return model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, promptTokens, other)
+		logType := model.LogTypeError
+		if types.IsClientCanceledError(err) || types.IsNotImplementedError(err) {
+			logType = model.LogTypeConsume
+		}
+		return model.RecordErrorLog(c, logType, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, promptTokens, other)
 	}
 	return 0
 }

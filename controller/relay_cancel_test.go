@@ -276,7 +276,7 @@ func TestRecordRelayErrorLogClientCanceled(t *testing.T) {
 	var logs []model.Log
 	require.NoError(t, db.Find(&logs).Error)
 	require.Len(t, logs, 1)
-	require.Equal(t, model.LogTypeError, logs[0].Type)
+	require.Equal(t, model.LogTypeConsume, logs[0].Type)
 	require.Equal(t, 2, logs[0].UserId)
 	require.Equal(t, 5, logs[0].ChannelId)
 	require.Equal(t, "gpt-5.5", logs[0].ModelName)
@@ -296,7 +296,7 @@ func TestRecordRelayErrorLogClientCanceled(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, []interface{}{"5"}, adminInfo["use_channel"])
 
-	userLogs, total, err := model.GetUserLogs(2, model.LogTypeError, 0, 0, "", "", 0, 10, "", "", "")
+	userLogs, total, err := model.GetUserLogs(2, model.LogTypeConsume, 0, 0, "", "", 0, 10, "", "", "")
 	require.NoError(t, err)
 	require.Equal(t, int64(1), total)
 	require.Len(t, userLogs, 1)
@@ -304,6 +304,33 @@ func TestRecordRelayErrorLogClientCanceled(t *testing.T) {
 	require.NoError(t, common.Unmarshal([]byte(userLogs[0].Other), &userOther))
 	require.Equal(t, true, userOther["client_canceled"])
 	require.NotContains(t, userOther, "user_agent")
+}
+
+func TestRecordRelayErrorLogNotImplemented(t *testing.T) {
+	db := setupRelayCancelControllerTestDB(t)
+	originalErrorLogEnabled := constant.ErrorLogEnabled
+	constant.ErrorLogEnabled = true
+	t.Cleanup(func() {
+		constant.ErrorLogEnabled = originalErrorLogEnabled
+	})
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	ctx.Set("id", 2)
+	ctx.Set("username", "alice")
+	ctx.Set("token_name", "default")
+	ctx.Set("original_model", "gpt-5.5")
+	ctx.Set("channel_id", 5)
+
+	recordRelayErrorLog(ctx, types.NewErrorWithStatusCode(errors.New("not implemented"), types.ErrorCodeDoRequestFailed, http.StatusInternalServerError))
+
+	var logs []model.Log
+	require.NoError(t, db.Find(&logs).Error)
+	require.Len(t, logs, 1)
+	require.Equal(t, model.LogTypeConsume, logs[0].Type)
+	require.Equal(t, "status_code=404, not implemented", logs[0].Content)
 }
 
 func TestRecordRelayErrorLogUsesPromptTokensFallback(t *testing.T) {
