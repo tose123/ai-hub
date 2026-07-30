@@ -254,7 +254,7 @@ function formatFlowMetricNumber(value: number): string {
 
 export function FlowCharts(props: FlowChartsProps) {
   const { t } = useTranslation()
-  const { resolvedTheme, themeReady } = useChartTheme()
+  const { themeReady } = useChartTheme()
   const chartInstanceRef = useRef<IVChart | null>(null)
   const user = useAuthStore((state) => state.auth.user)
   const isRoot = Boolean(user?.role && user.role >= ROLE.SUPER_ADMIN)
@@ -462,7 +462,6 @@ export function FlowCharts(props: FlowChartsProps) {
       }),
     [chartTitle, flowData.flow, t]
   )
-  const chartTheme = resolvedTheme === 'dark' ? 'dark' : 'light'
   const chartKey = [
     metric,
     topNodeLimit,
@@ -477,7 +476,6 @@ export function FlowCharts(props: FlowChartsProps) {
     visibleStages.join(','),
     maskSensitive ? 'masked' : 'plain',
     flowRows?.length ?? 0,
-    resolvedTheme,
   ].join('-')
   const displayState = flowDisplayState({
     isLoading,
@@ -494,7 +492,7 @@ export function FlowCharts(props: FlowChartsProps) {
       key={`flow-${chartKey}`}
       spec={{
         ...flowSpec,
-        theme: chartTheme,
+        theme: 'light',
         background: 'transparent',
       }}
       option={VCHART_OPTION}

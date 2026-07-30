@@ -20,9 +20,7 @@ import { VChart } from '@visactor/react-vchart'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { useThemeCustomization } from '@/context/theme-customization-provider'
 import { getSuccessRateColor } from '@/features/performance-metrics/lib/format'
-import { useThemeRadiusPx } from '@/lib/theme-radius'
 import { useChartTheme } from '@/lib/use-chart-theme'
 import { cn } from '@/lib/utils'
 import { VCHART_OPTION } from '@/lib/vchart'
@@ -50,16 +48,10 @@ function formatDayLabel(date: string): string {
   })
 }
 
-function getChartThemeTokens(resolvedTheme: string) {
+function getChartThemeTokens() {
   return {
-    textColor:
-      resolvedTheme === 'dark'
-        ? 'rgba(255, 255, 255, 0.68)'
-        : 'rgba(15, 23, 42, 0.58)',
-    gridColor:
-      resolvedTheme === 'dark'
-        ? 'rgba(255, 255, 255, 0.12)'
-        : 'rgba(15, 23, 42, 0.12)',
+    textColor: 'rgba(21, 21, 21, 0.58)',
+    gridColor: 'rgba(21, 21, 21, 0.12)',
   }
 }
 
@@ -98,8 +90,8 @@ export function LatencyTrendChart(props: {
   className?: string
 }) {
   const { t } = useTranslation()
-  const { resolvedTheme, themeReady } = useChartTheme()
-  const { textColor, gridColor } = getChartThemeTokens(resolvedTheme)
+  const { themeReady } = useChartTheme()
+  const { textColor, gridColor } = getChartThemeTokens()
 
   const spec = useMemo(() => {
     if (props.series.length === 0) return null
@@ -174,10 +166,10 @@ export function LatencyTrendChart(props: {
     <div className={cn('h-64 sm:h-72', props.className)}>
       {themeReady && spec && (
         <VChart
-          key={`latency-${resolvedTheme}`}
+          key='latency'
           spec={{
             ...spec,
-            theme: resolvedTheme === 'dark' ? 'dark' : 'light',
+            theme: 'light',
             background: 'transparent',
           }}
           option={VCHART_OPTION}
@@ -196,8 +188,8 @@ export function UptimeTrendChart(props: {
   className?: string
 }) {
   const { t } = useTranslation()
-  const { resolvedTheme, themeReady } = useChartTheme()
-  const { textColor, gridColor } = getChartThemeTokens(resolvedTheme)
+  const { themeReady } = useChartTheme()
+  const { textColor, gridColor } = getChartThemeTokens()
 
   const spec = useMemo(() => {
     if (props.series.length === 0) return null
@@ -302,10 +294,10 @@ export function UptimeTrendChart(props: {
     <div className={cn('h-56 sm:h-64', props.className)}>
       {themeReady && spec && (
         <VChart
-          key={`uptime-trend-${resolvedTheme}`}
+          key='uptime-trend'
           spec={{
             ...spec,
-            theme: resolvedTheme === 'dark' ? 'dark' : 'light',
+            theme: 'light',
             background: 'transparent',
           }}
           option={VCHART_OPTION}
@@ -324,13 +316,9 @@ export function ThroughputBarChart(props: {
   className?: string
 }) {
   const { t } = useTranslation()
-  const { resolvedTheme, themeReady } = useChartTheme()
-  const { textColor, gridColor } = getChartThemeTokens(resolvedTheme)
-  const { customization } = useThemeCustomization()
-  const barRadius = useThemeRadiusPx(
-    '--radius-sm',
-    `${customization.preset}:${customization.radius}`
-  )
+  const { themeReady } = useChartTheme()
+  const { textColor, gridColor } = getChartThemeTokens()
+  const barRadius = 7
 
   const filtered = useMemo(
     () => props.rows.filter((r) => r.throughput_tps > 0),
@@ -347,7 +335,7 @@ export function ThroughputBarChart(props: {
       yField: 'group',
       bar: {
         style: {
-          fill: '#6366f1',
+          fill: '#e7630b',
           ...(barRadius == null ? {} : { cornerRadius: barRadius }),
         },
       },
@@ -395,10 +383,10 @@ export function ThroughputBarChart(props: {
     <div className={cn('h-48 sm:h-56', props.className)}>
       {themeReady && spec && (
         <VChart
-          key={`tput-${resolvedTheme}`}
+          key='tput'
           spec={{
             ...spec,
-            theme: resolvedTheme === 'dark' ? 'dark' : 'light',
+            theme: 'light',
             background: 'transparent',
           }}
           option={VCHART_OPTION}

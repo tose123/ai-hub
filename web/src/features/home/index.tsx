@@ -22,7 +22,6 @@ import { useTranslation } from 'react-i18next'
 import { PublicLayout } from '@/components/layout'
 import { Footer } from '@/components/layout/components/footer'
 import { RichContent } from '@/components/rich-content'
-import { useTheme } from '@/context/theme-provider'
 import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -32,17 +31,13 @@ import { useHomePageContent } from './hooks'
 export function Home() {
   const { i18n, t } = useTranslation()
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const { resolvedTheme } = useTheme()
   const { auth } = useAuthStore()
   const isAuthenticated = !!auth.user
   const { content, isLoaded, isUrl } = useHomePageContent()
 
   const syncIframePreferences = useCallback(() => {
     try {
-      iframeRef.current?.contentWindow?.postMessage(
-        { themeMode: resolvedTheme },
-        '*'
-      )
+      iframeRef.current?.contentWindow?.postMessage({ themeMode: 'light' }, '*')
       iframeRef.current?.contentWindow?.postMessage(
         { lang: i18n.language },
         '*'
@@ -50,7 +45,7 @@ export function Home() {
     } catch {
       // Cross-origin frames may reject access while navigating.
     }
-  }, [i18n.language, resolvedTheme])
+  }, [i18n.language])
 
   useEffect(() => {
     if (isUrl) {

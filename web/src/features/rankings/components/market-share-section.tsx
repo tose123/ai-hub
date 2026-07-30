@@ -39,38 +39,37 @@ const PERIOD_DESCRIPTIONS: Record<RankingPeriod, string> = {
  * legend dots. Falls back to a neutral palette for unknown vendors so that
  * future additions still render. */
 const VENDOR_COLOURS: Record<string, string> = {
-  OpenAI: '#10a37f',
-  Anthropic: '#d97757',
-  Google: '#4285f4',
-  DeepSeek: '#7c5cff',
-  Alibaba: '#ff9900',
-  xAI: '#1f2937',
-  Meta: '#1877f2',
-  Moonshot: '#ec4899',
-  Zhipu: '#06b6d4',
-  Mistral: '#ff7000',
-  ByteDance: '#3b82f6',
-  Tencent: '#22c55e',
-  MiniMax: '#a855f7',
-  Cohere: '#fb923c',
-  Baidu: '#ef4444',
-  Others: '#94a3b8',
+  OpenAI: '#527663',
+  Anthropic: '#a65c52',
+  Google: '#5d7487',
+  DeepSeek: '#766d94',
+  Alibaba: '#b58035',
+  xAI: '#313234',
+  Meta: '#64828a',
+  Moonshot: '#aa6d7e',
+  Zhipu: '#5f8381',
+  Mistral: '#e7630b',
+  ByteDance: '#697f91',
+  Tencent: '#6d7e4b',
+  MiniMax: '#8a6675',
+  Cohere: '#96735b',
+  Baidu: '#a65c52',
+  Others: '#7c766e',
 }
 
 const FALLBACK_PALETTE = [
-  '#0ea5e9',
-  '#22c55e',
-  '#a855f7',
-  '#f97316',
-  '#14b8a6',
-  '#eab308',
-  '#ec4899',
-  '#84cc16',
-  '#6366f1',
-  '#10b981',
-  '#f43f5e',
-  '#0891b2',
-  '#94a3b8',
+  '#e7630b',
+  '#55755f',
+  '#b58035',
+  '#5d7487',
+  '#8a6675',
+  '#96735b',
+  '#6d7e4b',
+  '#a65c52',
+  '#64828a',
+  '#766d94',
+  '#aa6d7e',
+  '#7c766e',
 ]
 
 function buildVendorColourMap(names: string[]): Record<string, string> {
@@ -102,15 +101,9 @@ type MarketShareSectionProps = {
  */
 export function MarketShareSection(props: MarketShareSectionProps) {
   const { t } = useTranslation()
-  const { resolvedTheme, themeReady } = useChartTheme()
-  const chartTextColor =
-    resolvedTheme === 'dark'
-      ? 'rgba(255, 255, 255, 0.68)'
-      : 'rgba(15, 23, 42, 0.58)'
-  const chartGridColor =
-    resolvedTheme === 'dark'
-      ? 'rgba(255, 255, 255, 0.12)'
-      : 'rgba(15, 23, 42, 0.12)'
+  const { themeReady } = useChartTheme()
+  const chartTextColor = 'rgba(21, 21, 21, 0.58)'
+  const chartGridColor = 'rgba(21, 21, 21, 0.12)'
 
   const colourMap = useMemo(
     () => buildVendorColourMap(props.history.vendors.map((v) => v.name)),
@@ -228,10 +221,10 @@ export function MarketShareSection(props: MarketShareSectionProps) {
         <div className='h-60 sm:h-72'>
           {themeReady && spec ? (
             <VChart
-              key={`vendor-share-${resolvedTheme}-${props.period}`}
+              key={`vendor-share-${props.period}`}
               spec={{
                 ...spec,
-                theme: resolvedTheme === 'dark' ? 'dark' : 'light',
+                theme: 'light',
                 background: 'transparent',
               }}
               option={VCHART_OPTION}
@@ -286,7 +279,7 @@ function VendorList(props: {
             aria-hidden
             className='size-2.5 shrink-0 rounded-full'
             style={{
-              backgroundColor: props.colourMap[vendor.vendor] ?? '#94a3b8',
+              backgroundColor: props.colourMap[vendor.vendor] ?? '#7c766e',
             }}
           />
           <VendorLink

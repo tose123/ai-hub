@@ -19,31 +19,19 @@ For commercial licensing, please contact support@quantumnous.com
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
-@import '@fontsource-variable/public-sans';
-/* Editorial serif (Lora) backing the `serif` font axis and the Anthropic
- * preset's default typography. See `--font-serif` in theme.css for the
- * full Latin + CJK fallback stack and `theme-presets.css` for the cascade
- * that activates it. Loaded globally so font-switching is instantaneous
- * with no FOUT once the variable is fetched. */
-@import '@fontsource-variable/lora';
+@import '@fontsource-variable/manrope';
+@import '@fontsource-variable/playfair-display';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
 
 @import './theme.css';
-@import './theme-presets.css';
 
-/* Shiki dual themes: token colors follow dark theme (pre background stays `bg-background` on the block) */
 @layer components {
   .shiki span {
     color: var(--shiki-light) !important;
     font-style: var(--shiki-light-font-style) !important;
     font-weight: var(--shiki-light-font-weight) !important;
     text-decoration: var(--shiki-light-text-decoration) !important;
-  }
-
-  .dark .shiki span {
-    color: var(--shiki-dark) !important;
-    font-style: var(--shiki-dark-font-style) !important;
-    font-weight: var(--shiki-dark-font-weight) !important;
-    text-decoration: var(--shiki-dark-text-decoration) !important;
   }
 
   .json-code-editor-textarea {
@@ -88,18 +76,35 @@ For commercial licensing, please contact support@quantumnous.com
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    letter-spacing: 0 !important;
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
   }
   html {
-    @apply overflow-x-hidden font-sans;
+    @apply overflow-x-hidden font-sans antialiased;
+    scroll-behavior: smooth;
   }
   body {
-    @apply bg-background text-foreground has-[div[data-variant='inset']]:bg-sidebar min-h-svh w-full;
-    /* Font is driven by the theme's font axis via `--font-body`
-     * (defined in theme.css, swapped by `[data-theme-font='...']` blocks
-     * in theme-presets.css). Defaults to the project's humanist sans. */
+    @apply bg-background text-foreground min-h-svh w-full;
     font-family: var(--font-body);
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--brand) 24%, transparent);
+    color: var(--foreground);
+  }
+
+  code,
+  kbd,
+  samp,
+  pre,
+  .tabular-nums {
+    font-family: var(--font-mono);
+  }
+
+  :focus-visible {
+    outline-color: var(--ring);
   }
 
   /* Keep sticky headers stable while primitives lock body scrolling. */
@@ -270,32 +275,29 @@ For commercial licensing, please contact support@quantumnous.com
   }
 }
 
-/* Launch UI Animations and Effects - Matching Template Exactly */
 @layer utilities {
-  /* Gradient utilities */
   .bg-radial {
     background-image: radial-gradient(var(--tw-gradient-stops));
   }
 
-  /* Glass morphism effects - matching Launch UI template */
   .glass-1 {
-    @apply border-border from-card/80 to-card/40 dark:border-border/10 dark:border-b-border/5 dark:border-t-border/20 dark:from-card/5 dark:to-card/0 border bg-linear-to-b;
+    @apply border-border/80 border bg-white/55 backdrop-blur-xl;
   }
 
   .glass-2 {
-    @apply border-border from-card/100 to-card/80 dark:border-border/10 dark:border-b-border/5 dark:border-t-border/20 dark:from-card/10 dark:to-card/5 border bg-linear-to-b;
+    @apply border-border/80 border bg-white/75 backdrop-blur-xl;
   }
 
   .glass-3 {
-    @apply border-border from-card/30 to-card/20 dark:border-border/10 dark:border-t-border/20 dark:border-b-border/5 dark:from-primary/5 dark:to-primary/2 border bg-linear-to-b;
+    @apply border-border/70 border bg-white/45 backdrop-blur-xl;
   }
 
   .glass-4 {
-    @apply border-border border-b-input/90 from-card/60 to-card/20 dark:border-border/10 dark:border-t-border/30 dark:from-primary/10 dark:to-primary/5 border bg-linear-to-b dark:border-b-0;
+    @apply border-border/80 border bg-white/65 backdrop-blur-xl;
   }
 
   .glass-5 {
-    @apply border-border border-b-input from-card/100 to-card/20 dark:border-border/10 dark:border-t-border/30 dark:from-primary/15 dark:to-primary/5 border bg-linear-to-b dark:border-b-0;
+    @apply border-border/80 border bg-white/85 backdrop-blur-xl;
   }
 
   /* Fade effects - matching Launch UI template */
@@ -531,11 +533,7 @@ For commercial licensing, please contact support@quantumnous.com
   @media (min-width: 641px) {
     [data-slot='card']:not([data-card-hover='false']):hover {
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgb(0 0 0 / 0.06);
-    }
-
-    .dark [data-slot='card']:not([data-card-hover='false']):hover {
-      box-shadow: 0 4px 12px rgb(0 0 0 / 0.3);
+      box-shadow: var(--shadow-soft);
     }
   }
 

@@ -28,14 +28,10 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react'
 import { Toaster as Sonner, type ToasterProps } from 'sonner'
 
-import { useTheme } from '@/context/theme-provider'
-
 const Toaster = (props: ToasterProps) => {
-  const { resolvedTheme } = useTheme()
-
   return (
     <Sonner
-      theme={resolvedTheme}
+      theme='light'
       className='toaster group'
       icons={{
         success: (

@@ -21,7 +21,6 @@ import { AutoSkeleton } from 'auto-skeleton-react'
 import type { ReactNode } from 'react'
 
 import { ErrorState } from '@/components/error-state'
-import { useThemeRadiusPx } from '@/lib/theme-radius'
 
 interface ContentSkeletonProps {
   loading: boolean
@@ -33,8 +32,6 @@ interface ContentSkeletonProps {
 }
 
 export function ContentSkeleton(props: ContentSkeletonProps) {
-  const themeRadius = useThemeRadiusPx()
-
   return (
     <div className={props.className}>
       <AutoSkeleton
@@ -43,7 +40,7 @@ export function ContentSkeleton(props: ContentSkeletonProps) {
           animation: 'none',
           baseColor: 'var(--skeleton-base)',
           highlightColor: 'var(--skeleton-highlight)',
-          borderRadius: props.borderRadius ?? themeRadius,
+          borderRadius: props.borderRadius ?? 10,
           minTextHeight: props.minTextHeight ?? 14,
           maxDepth: props.maxDepth ?? 10,
         }}
