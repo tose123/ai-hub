@@ -1,6 +1,6 @@
 ---
 name: newapi-main-sync
-description: Fetch upstream newapi/main, merge it into local main, preserve local behavior across textual and semantic conflicts, audit post-merge repairs for regressions, summarize updates, and recommend key test areas.
+description: Fetch upstream newapi/main, merge it into local main, preserve versioned local behavior contracts across textual and semantic conflicts, pause for high-confidence security conflicts, audit post-merge repairs for regressions, summarize updates, and recommend key test areas.
 ---
 
 # Newapi Main Sync
@@ -9,7 +9,9 @@ description: Fetch upstream newapi/main, merge it into local main, preserve loca
 
 Update the local `main` branch with the latest code from the `newapi` remote's `main` branch. Use this when the user asks to pull, sync, update, or merge `newapi/main` into local `main`.
 
-Conflict precedence rule: when `newapi/main` and local `main` change the same functionality, local `main` is the source of truth. Preserve local `main` behavior by default, and only carry over upstream pieces that are clearly compatible and do not alter the local behavior contract. Apply this rule to semantic conflicts and post-merge repairs even when Git reports no textual conflict.
+The versioned feature ledger at `.agents/skills/newapi-main-sync/local-feature-ledger.yaml` is the authority for local behavior that must survive synchronization. A feature is affected only when the upstream diff touches its recorded paths/symbols/callers or changes the recorded observable behavior; sharing a file alone is not enough. For an affected protected feature, preserve local behavior by default and only carry over upstream pieces that are clearly compatible. Apply this rule to semantic conflicts and post-merge repairs even when Git reports no textual conflict.
+
+Do not use a broad "ours" merge strategy. It can silently discard useful upstream work outside a protected feature. Resolve protected behavior locally, but evaluate unlisted behavior on its own merits.
 
 ## Workflow
 
@@ -29,17 +31,25 @@ git rev-parse --verify main
 
 If `newapi` is missing, stop and ask the user to add or confirm the upstream remote. If local `main` is missing, stop and ask which branch should receive the merge.
 
-If a merge, rebase, cherry-pick, or revert is already in progress, stop and report the in-progress operation before doing anything else.
+If a merge, rebase, cherry-pick, or revert is already in progress, stop and report the in-progress operation before doing anything else. The only exception is an explicit user decision in this same task that resolves the exact pending security/semantic question; resume that existing operation without fetching again.
 
-If the working tree has uncommitted changes:
+If the working tree or index has uncommitted changes:
 
 - Do not discard, stash, commit, or overwrite them unless the user explicitly asks.
-- If already on `main`, decide whether the merge can proceed without touching those files. If not clearly safe, stop and ask the user whether to stash, commit, or cancel.
-- If not on `main`, stop and ask the user how to handle the uncommitted changes before switching branches.
+- Stop before fetching or switching branches. Ask the user to commit, stash, or cancel; an uncommitted candidate-ledger draft is the sole exception and must stay unmerged until the requested confirmation arrives.
+- Never begin an upstream merge with a non-empty index. Existing staged work could otherwise be included in the merge commit.
 
 Never run destructive commands such as `git reset --hard`, `git checkout -- <path>`, branch deletion, or force push as part of this skill.
 
 ### 2. Fetch upstream
+
+After preflight confirms a clean tree, switch to `main` before establishing the local baseline:
+
+```bash
+git switch main
+git diff --quiet
+git diff --cached --quiet
+```
 
 Fetch the latest upstream `main`:
 
@@ -52,11 +62,13 @@ git rev-parse --short "$UPSTREAM_HEAD"
 git log --oneline --left-right --cherry-pick main...newapi/main
 ```
 
-Record the full pre-merge local `HEAD` as `LOCAL_BEFORE` and the full fetched upstream commit as `UPSTREAM_HEAD` in working notes. Shell variables may not persist between tool calls; use the recorded literal hashes later or reassign the variables in the same shell invocation. Summarize whether local `main` is behind, ahead, diverged, or already up to date.
+Record the full pre-merge local `HEAD` as `LOCAL_BEFORE` and the full fetched upstream commit as `UPSTREAM_HEAD` in working notes. Shell variables may not persist between tool calls; use the recorded literal hashes later or reassign the variables in the same shell invocation. Summarize whether local `main` is behind, ahead, diverged, or already up to date. If `UPSTREAM_HEAD` is already an ancestor of `LOCAL_BEFORE`, mark the upstream result as `no-op`; still finish any required ledger bootstrap, but skip the merge and never create an empty merge commit.
 
-### 3. Build the local behavior ledger
+### 3. Build and confirm the persistent local feature ledger
 
-Before merging, identify the behavior that exists only on local `main`:
+Before merging, read `.agents/skills/newapi-main-sync/local-feature-ledger.yaml`. It is versioned project data, not temporary working notes. Validate that it has a supported `schema_version`, the `newapi/main` upstream target, and a `features` array. If it is missing or malformed, stop and ask for repair; do not silently invent an incomplete replacement.
+
+Identify behavior that exists only on local `main`:
 
 ```bash
 MERGE_BASE=$(git merge-base "$LOCAL_BEFORE" "$UPSTREAM_HEAD")
@@ -66,9 +78,15 @@ git diff --name-status "$MERGE_BASE".."$LOCAL_BEFORE"
 git diff --name-status "$MERGE_BASE".."$UPSTREAM_HEAD"
 ```
 
-Save the merge base as `MERGE_BASE`. Build a working ledger of local-only functional commits, including each commit's intent, affected paths, observable behavior, and relevant tests or configuration. Documentation-only and mechanical formatting commits may be summarized together.
+Save the merge base as `MERGE_BASE`. Compare local-only functional commits with `source_commits` in every reviewed ledger entry (`approved` or `excluded`) and any already-pending candidate, so a rejected candidate does not return on every sync. Exclude the ledger and this skill's own paths. For every unrecorded functional commit, generate a candidate with `status: pending_confirmation`, a stable `id`, category (`backend`, `ui`, or `ops`), exact paths, important symbols/callers, observable behavior, and focused verification. Documentation-only, formatting-only, lockfile-only, and mechanical commits are not candidates unless they change a recorded behavior. Only entries with `status: approved` protect behavior during a merge; an `excluded` entry must contain the user's `review_reason`.
 
-Treat paths changed on both sides as semantic-conflict candidates even if Git would merge them cleanly. For each candidate, inspect the local commits and representative patches:
+For every candidate, inspect its patch and relevant tests before classifying it. Never create a feature entry from its commit subject or a top-level directory alone. Group related candidates only when they form one observable product contract; preserve source commit/path evidence inside the grouped entry.
+
+When `bootstrap.state` is `required`, use `bootstrap.source_merge_base` as `LOCAL_FEATURE_BASE` after verifying it is an ancestor of `LOCAL_BEFORE`; do not replace it with the current merge base. If it is not an ancestor, stop and report the invalid bootstrap anchor. Derive candidates from `LOCAL_FEATURE_BASE..LOCAL_BEFORE`, update the draft in the ledger, and present one compact approval table grouped by category. Use the default of protecting all functional groups. The user may reply `确认默认项` to approve all, or name only groups/IDs to exclude or amend. Mark excluded items as `status: excluded` with a `review_reason`; do not delete their source evidence. Do not merge, stage, or commit while any candidate is unconfirmed. After approval, persist reviewed entries, set `bootstrap.state: complete`, and make a separate focused commit for the ledger before restarting the sync from preflight. This one-time stop prevents an unreviewed historical fork from being silently overwritten even if the upstream merge base moves before bootstrap finishes.
+
+On later syncs, apply the same candidate process for new local functional commits that are not covered by an approved ledger entry. Keep the confirmation burden low: omit mechanical candidates, group coherent behavior, state the default, and accept `确认默认项` as a single approval. Never mark a candidate approved merely because it is adjacent to an approved feature.
+
+For each approved feature, calculate upstream impact using `git diff --find-renames "$MERGE_BASE".."$UPSTREAM_HEAD"`, paths, symbols, callers, public API contracts, configuration keys, and tests. Classify it as `none`, `adjacent`, `direct`, or `security-direct`; record the evidence in working notes. `adjacent` requires review but does not permit overwriting the feature. Treat paths changed on both sides as semantic-conflict candidates even if Git would merge them cleanly. For each candidate, inspect the local commits and representative patches:
 
 ```bash
 git log --oneline "$MERGE_BASE".."$LOCAL_BEFORE" -- <path>
@@ -78,30 +96,45 @@ git diff "$MERGE_BASE".."$UPSTREAM_HEAD" -- <path>
 
 Include behavior affected indirectly by renames, moved packages, shared helpers, tests, defaults, configuration parsing, and call-site contracts. When feasible, run focused tests for semantic-conflict candidates before merging and record pre-existing failures; do not later misclassify a baseline failure as merge fallout.
 
-### 4. Switch to local main
+#### Security-overlap gate
 
-If the current branch is not `main` and the working tree is clean, switch to `main`:
+Do not label an upstream change "strongly recommended security update" from a commit subject, a `security` keyword, or a dependency version bump alone. It needs one of: a CVE/GHSA or upstream security advisory; an upstream maintainer's explicit security notice; or patch/test evidence of a concrete high-risk remote vulnerability such as authentication bypass, privilege escalation, injection, secret exposure, or remote code execution. Obtain and record the advisory/commit evidence before escalating.
+
+If such a change directly affects an approved feature, pause before creating a merge commit. Present a compact decision card containing the affected feature, vulnerability evidence, upstream remediation, local behavior at risk, focused verification, and these choices:
+
+1. Recommended: port an equivalent mitigation while preserving the local behavior contract.
+2. Adopt the upstream behavioral change and retire/amend the ledger entry.
+3. Defer the upstream change and stop the sync without a merge commit.
+
+Do not choose any of these on the user's behalf. Group choices only when the same vulnerability and remediation affect multiple features, and accept `按推荐方案处理全部安全项` as a single explicit approval. A security update not overlapping an approved feature should be integrated normally and reported with its evidence.
+
+### 4. Merge upstream
+
+Start a reviewable merge without a global conflict preference:
 
 ```bash
-git switch main
+git merge --no-commit --no-ff newapi/main
 ```
 
-### 5. Merge upstream
+Run this command only when the upstream result is not `no-op`.
+For a `no-op`, skip sections 4-6 and proceed directly to section 7; do not define `MERGED_HEAD` or create a merge commit.
 
-Merge upstream into local `main`, preferring local `main` on conflicting hunks:
+Whether the merge is clean or conflict-resolved, keep it uncommitted until the preliminary feature-preservation and security-overlap gates pass. A clean merge does not prove that local behavior survived. For every impacted approved feature, inspect the staged merge result against both parents and run its focused verification when feasible:
 
 ```bash
-git merge --no-edit -X ours newapi/main
+git diff --cached --find-renames "$LOCAL_BEFORE" -- <local-feature-paths>
+git diff --cached --find-renames "$UPSTREAM_HEAD" -- <local-feature-paths>
 ```
 
-`-X ours` only resolves overlapping textual hunks. A clean merge does not prove that local behavior survived. After any successful merge, save the merged `HEAD` as `MERGED_HEAD` before making follow-up repairs, then continue to the preservation audit:
+If the staged result weakens a recorded behavior, repair it before committing. If the safe repair is ambiguous or security-sensitive, pause for the decision gate instead. After the preliminary gate passes, commit the merge, save `MERGED_HEAD`, then continue to the full preservation audit:
 
 ```bash
+git commit --no-edit
 MERGED_HEAD=$(git rev-parse HEAD)
 git rev-parse --short "$MERGED_HEAD"
 ```
 
-### 6. Conflict handling
+### 5. Conflict handling
 
 When conflicts occur, first list them:
 
@@ -112,7 +145,7 @@ rg -n '^(<<<<<<<|=======|>>>>>>>)' .
 
 Inspect each conflicted file and classify the conflict before editing.
 
-Default rule: if both sides touch the same functionality or behavior, keep local `main`'s implementation. Treat the local side as the baseline and selectively re-apply only upstream edits that are obviously safe, such as comments, imports, tests, translations, formatting, or adjacent helper code that does not change runtime behavior.
+For an approved feature with `direct` impact, keep the recorded local behavior. Treat the local implementation as the behavioral baseline and selectively re-apply only upstream edits that are obviously safe, such as comments, imports, tests, translations, formatting, or adjacent helper code that does not change runtime behavior. For unlisted behavior, inspect both contracts; do not apply an implicit local preference merely because the hunk conflicts.
 
 Safe-to-resolve conflicts include both:
 
@@ -133,16 +166,16 @@ For escalation-worthy conflicts, do not guess. Report:
 - why a simple local-main-preferred resolution may still be unsafe;
 - 2-3 concrete resolution options, with the recommended option biased toward preserving local `main` behavior when feasible.
 
-If all conflicts are safely resolved, stage only the resolved files and complete the merge:
+If all conflicts are safely resolved, stage only the resolved files, perform the preliminary ledger gate above, then complete the merge. Do not stage unrelated user changes.
 
 ```bash
 git add <resolved-files>
 git commit --no-edit
+MERGED_HEAD=$(git rev-parse HEAD)
+git rev-parse --short "$MERGED_HEAD"
 ```
 
-Do not stage unrelated user changes.
-
-### 7. Post-sync update review
+### 6. Ledger preservation gate and post-sync review
 
 After a successful merge, inspect what changed between `LOCAL_BEFORE` and the merged `HEAD` before reporting:
 
@@ -154,7 +187,7 @@ git log --oneline --no-merges "$LOCAL_BEFORE"..HEAD
 
 #### Local behavior preservation gate
 
-Verify every entry in the local behavior ledger against the merged result. For renamed or refactored code, verify the observable behavior rather than requiring identical source text.
+Verify every approved feature with `adjacent`, `direct`, or `security-direct` impact against the merged result. For renamed or refactored code, verify the observable behavior rather than requiring identical source text. A `none` impact still needs its recorded paths checked for accidental merge fallout.
 
 ```bash
 git diff --find-renames "$UPSTREAM_HEAD"..HEAD -- <local-feature-paths>
@@ -178,7 +211,9 @@ git diff --stat "$MERGED_HEAD"..HEAD
 git diff --find-renames "$MERGED_HEAD"..HEAD
 ```
 
-If any local ledger entry is missing, weakened, or cannot coexist safely with a required upstream contract, stop and report the conflict with concrete options. Passing tests, lint, typecheck, or build does not waive this gate.
+If any approved ledger entry is missing, weakened, or cannot coexist safely with a required upstream contract, stop and report the conflict with concrete options. Passing tests, lint, typecheck, or build does not waive this gate. Do not change or remove a ledger entry merely to make the gate pass; an approved security-overlap decision or explicit user approval is required.
+
+After a user-approved feature is intentionally introduced, retired, or materially changed, update the ledger in a focused follow-up commit. Do not bundle ledger administration into the upstream merge commit, and do not create an entry for this skill or its ledger files themselves.
 
 Summarize main updates by product area, not by raw file list:
 
@@ -204,9 +239,11 @@ Derive testing focus from the changed areas. Prefer concrete checks such as:
 - i18n changed: run or inspect i18n sync and test language switching for touched screens.
 - Config/deployment changed: test fresh config defaults and upgraded existing config.
 
-### 8. Verification
+### 7. Verification
 
 Run focused checks based on the files changed by the merge. Do not report the sync as complete until the required checks are clean or a concrete blocker is reported:
+
+For a `no-op`, run only ledger validation and any checks needed for a separately approved ledger change; do not run unrelated backend or frontend suites.
 
 - Go backend changes: `go test ./...`
 - Frontend changes: from `web/`, use Bun. Always run both `bun run typecheck` and `bun run build`; a successful Rsbuild build is not sufficient because it can miss TypeScript duplicate declarations, missing imports, and invalid lazy route chunks. `bun run typecheck` must be clean, not merely grepped for known errors.
@@ -259,14 +296,16 @@ For touched routes or lazy chunks, open or request each affected route/module wh
 
 If a check is too expensive or cannot run because dependencies or services are missing, say that plainly and include the next best manual check.
 
-### 9. Report
+### 8. Report
 
 Reply in Chinese with:
 
 - the fetched `newapi/main` short commit;
-- whether the merge was fast-forward, merge commit, clean merge, conflict-resolved merge, or blocked by ambiguous conflicts;
+- whether the result was no-op, a clean no-ff merge commit, a conflict-resolved merge commit, or blocked by ambiguous conflicts;
 - conflicts automatically resolved, if any, and whether they were unrelated-compatible or local-main-preferred;
 - the local behavior ledger and preservation result for each semantic-conflict candidate;
+- newly generated ledger candidates, their group-confirmation result, and any focused ledger commit;
+- security-overlap evidence, user decision, and whether equivalent mitigation preserved local behavior;
 - post-merge repair commits or working-tree edits, with each behavioral hunk justified;
 - escalation-worthy conflicts and options, if any;
 - backend main updates, if any;

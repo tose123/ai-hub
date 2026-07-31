@@ -1,4 +1,4 @@
 interface:
   display_name: "同步 newapi main"
-  short_description: "安全同步 newapi/main 并核验本地功能未被覆盖"
-  default_prompt: "使用 $newapi-main-sync 同步 newapi/main 到本地 main，审计文本和语义冲突以及 merge 后修复，逐项确认本地功能仍被保留，再总结更新与验证结果。"
+  short_description: "版本化保护本地功能并安全同步 newapi/main"
+  default_prompt: "使用 $newapi-main-sync 先维护并确认本地功能差异清单，再同步 newapi/main；保留已登记行为，并暂停处理有可靠证据的安全冲突。"

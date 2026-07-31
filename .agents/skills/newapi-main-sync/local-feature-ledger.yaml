@@ -1,0 +1,35 @@
+# 须在同步 newapi/main 时保留的本地行为契约。
+# 仅将已审阅的本地提交写入此文件。清单随仓库版本化，后续同步不得
+# 依赖 Agent 的临时上下文。
+schema_version: 1
+
+upstream:
+  remote: newapi
+  branch: main
+
+defaults:
+  protected_feature_resolution: preserve_local_behavior
+  upstream_security_overlap: ask_user
+  unconfirmed_candidates: stop_before_merge
+
+# 首次同步按产品领域归组，从本地独有功能提交生成候选项。修改 main 前，
+# 必须按 SKILL.md 的精简方式请求分组确认。不得将清单或技能文件自身列为候选。
+bootstrap:
+  state: required
+  source_merge_base: 1db6ae19576d7019fec38cc63a3b94ce609c92c9
+
+# 已审阅条目使用以下结构：
+# - id: anytools-shared-auth
+#   status: approved # pending_confirmation | approved | excluded
+#   category: backend # backend | ui | ops
+#   source_commits: [9b5afb557]
+#   paths: [controller/anytools.go, middleware/auth.go]
+#   symbols: [AnyToolsAuth]
+#   behavior:
+#     - AnyTools 请求必须携带本地配置的共享令牌。
+#   verification:
+#     - go test ./controller ./middleware
+#   protection: preserve_local_behavior
+#   upstream_security_overlap: ask_user
+#   review_reason: "仅当 status 为 excluded 时必填。"
+features: []
