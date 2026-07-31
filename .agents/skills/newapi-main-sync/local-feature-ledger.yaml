@@ -1,5 +1,6 @@
 # 须在同步 newapi/main 时保留的本地行为契约。
-# 仅将已审阅的本地提交写入此文件。清单随仓库版本化，后续同步不得
+# 仅记录相对上游仍存在的已审阅本地行为差异。提交历史只作证据；若
+# 当前行为已与上游一致，不得写入。清单随仓库版本化，后续同步不得
 # 依赖 Agent 的临时上下文。
 schema_version: 1
 
@@ -15,8 +16,9 @@ defaults:
 # 首次同步按产品领域归组，从本地独有功能提交生成候选项。修改 main 前，
 # 必须按 SKILL.md 的精简方式请求分组确认。不得将清单或技能文件自身列为候选。
 bootstrap:
-  state: required
+  state: complete
   source_merge_base: 1db6ae19576d7019fec38cc63a3b94ce609c92c9
+  reviewed_local_head: 4c1c7b9492eda08032c595f07d72cd256c2958d7
 
 # 已审阅条目使用以下结构：
 # - id: anytools-shared-auth
@@ -32,4 +34,362 @@ bootstrap:
 #   protection: preserve_local_behavior
 #   upstream_security_overlap: ask_user
 #   review_reason: "仅当 status 为 excluded 时必填。"
-features: []
+features:
+  - id: anytools-shared-auth-and-billing
+    status: approved
+    category: backend
+    source_commits: ["8eb7d05f2", "9b5afb557", "57d664b72"]
+    paths:
+      - .env.example
+      - controller/anytools.go
+      - controller/anytools_test.go
+      - middleware/auth.go
+      - router/relay-router.go
+    symbols: [AnytoolsAuth, GetAnytoolsBalance, CheckoutAnytools]
+    behavior:
+      - 将旧 mcphub 接口改为 `/v1/anytools`，提供余额查询与按美元成本扣费接口。
+      - 所有 AnyTools 请求须通过 `ANYTOOLS_AUTH_TOKEN` 与 `X-Anytools-Token` 的恒定时间校验。
+      - 扣费同时更新令牌、用户额度、已用额度、请求次数及消费日志。
+    verification:
+      - go test ./controller ./middleware
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: token-auto-groups-and-cross-group-retry
+    status: approved
+    category: backend
+    source_commits: ["834f86869", "8728ffa16", "4f165ff6d", "d2fa3b121", "e35ff78d5", "eb94dcd81"]
+    paths:
+      - constant/context_key.go
+      - controller/model.go
+      - controller/token.go
+      - middleware/auth.go
+      - middleware/distributor.go
+      - model/main.go
+      - model/token.go
+      - service/channel_select.go
+      - service/group.go
+      - web/src/features/keys/**
+      - web/src/features/playground/constants.ts
+    symbols: [TokenAutoGroups, NormalizeTokenAutoGroups, GetTokenAwareAutoGroups, CacheGetRandomSatisfiedChannel]
+    behavior:
+      - API Key 可保存有序的 `auto_groups_override`；空值回退系统自动分组，重复或无权分组被规范化/拒绝。
+      - "`auto` Key 默认启用跨分组重试；Playground 默认选择 `auto` 并启用同等行为。"
+      - 模型列表、渠道选择和亲和回退均使用令牌级自动分组顺序。
+    verification:
+      - go test ./controller ./model ./middleware ./service
+      - cd web && bun run typecheck && bun run build
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: layered-model-mapping
+    status: approved
+    category: backend
+    source_commits: ["b4ae0bb00", "3df9056ac", "0820e4494", "1ea2caf9c", "91a7e97d3"]
+    paths:
+      - constant/context_key.go
+      - controller/model.go
+      - controller/option.go
+      - controller/token.go
+      - middleware/auth.go
+      - middleware/distributor.go
+      - model/main.go
+      - model/token.go
+      - relay/helper/model_mapped.go
+      - service/log_info_generate.go
+      - setting/model_setting/global.go
+      - web/src/features/system-settings/models/global-settings-card.tsx
+      - web/src/features/usage-logs/**
+    symbols: [resolveRoutedModel, applyModelMapping, applyTokenModelMapping, getMappedModelAliases, ApplyMappedModelInfoForController]
+    behavior:
+      - 请求模型依次应用全局映射、API Key 映射与渠道映射，并检测循环映射。
+      - 内置 thinking 后缀按基础模型匹配，同时对外模型列表保留本地别名。
+      - 日志分离记录请求模型、映射模型与上游实际模型，前端按层展示。
+    verification:
+      - go test ./controller ./middleware ./model ./relay/helper ./service ./setting/...
+      - cd web && bun run typecheck && bun run build
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: channel-priority-affinity-and-selection
+    status: approved
+    category: backend
+    source_commits: ["d6788264a", "cbd94a404", "e6d7be855", "b7bf7c6ee", "e869ea40a", "9ec8ea980", "22c806797", "ff34ab7f1", "f0491557d", "af965b7ec", "9d4688f6b"]
+    paths:
+      - constant/context_key.go
+      - controller/group.go
+      - middleware/distributor.go
+      - model/channel.go
+      - model/channel_cache.go
+      - service/channel_affinity.go
+      - service/channel_select.go
+      - web/src/features/channels/components/channels-table.tsx
+    symbols: [CacheGetRandomSatisfiedChannel, GetPreferredChannelByAffinity, RecordChannelAffinity, InvalidateCurrentChannelAffinityCache]
+    behavior:
+      - 分组响应稳定排序，渠道允许较低优先级值；管理表默认按优先级排序。
+      - 自动重试在同组按优先级推进，耗尽后才跨组；失败渠道被排除，重试次数受优先级层数约束。
+      - 同渠道命中保留亲和 TTL；清空、禁用或零 usage 等异常按本地规则失效亲和缓存。
+      - 指定渠道 ID 使用独立上下文键，避免与普通分发状态混淆。
+    verification:
+      - go test ./controller ./middleware ./model ./service
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: relay-retry-timeout-and-error-contract
+    status: approved
+    category: backend
+    source_commits: ["0e0abb1a1", "bade5d1c7", "9bcfd1f47", "2a1d6a61e", "35d6f166a", "957c0ee83", "5621d9111", "9c4e014a3", "b6bd93bf8", "28bf7a41e", "036ec7ce8", "f0fc79d00", "fac92dab3"]
+    paths:
+      - common/constants.go
+      - common/init.go
+      - controller/relay.go
+      - model/log.go
+      - relay/channel/openai/retry_usage.go
+      - relay/channel/openai/relay-openai.go
+      - relay/channel/openai/relay_responses.go
+      - relay/helper/timeout.go
+      - service/http.go
+      - service/http_client.go
+      - setting/operation_setting/status_code_ranges.go
+    symbols: [GetRelayResponseHeaderTimeout, shouldRetry, newMissingTextUsageError, recordRelayErrorLog]
+    behavior:
+      - Relay 支持普通与图片响应头超时配置，图片接口使用独立超时。
+      - 零输出、缺失 usage、504/524 及本地定义的服务端错误可触发重试；不可实现错误与最终状态码按本地契约归一化。
+      - 中间重试错误不写用户消费日志；最终预期错误按消费记录，避免重复噪声日志。
+    verification:
+      - go test ./controller ./relay/... ./service ./setting/operation_setting
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: relay-streaming-and-client-cancellation
+    status: approved
+    category: backend
+    source_commits: ["e4f921e98", "d8cb33ad3", "ff75d5469", "e944868eb", "690896ea6"]
+    paths:
+      - controller/relay.go
+      - relay/channel/openai/chat_via_responses.go
+      - relay/channel/openai/relay-openai.go
+      - relay/channel/openai/relay_responses.go
+      - relay/channel/openai/responses_via_chat.go
+      - relay/common/relay_info.go
+      - relay/helper/stream_scanner.go
+      - service/log_info_generate.go
+      - service/text_quota.go
+    symbols: [Relay, OaiResponsesStreamHandler, relayRequestContextErr, appendStreamStatus]
+    behavior:
+      - 可强制上游使用流式响应，并在每次重试前重置流状态。
+      - Chat/Responses 流式事件可双向兼容转换；客户端断开会传播取消，同时尽量读取可信 usage 完成结算。
+      - 已由上游实际产生的用量即使客户端取消仍计费，并记录终止原因。
+    verification:
+      - go test ./controller ./relay/... ./service
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: tool-cache-and-rerank-billing
+    status: approved
+    category: backend
+    source_commits: ["c6fbc6314", "4d510fec5", "3d4488325", "c53b4bcea", "5eb8a1643", "0066532f0", "fb10d4249", "649c5b830"]
+    paths:
+      - controller/log.go
+      - model/log.go
+      - relay/channel/openai/relay_responses.go
+      - relay/common_handler/rerank.go
+      - relay/helper/stream_scanner.go
+      - service/cache_tokens_ratio.go
+      - service/log_info_generate.go
+      - service/text_quota.go
+      - service/tiered_settle.go
+      - setting/operation_setting/tools.go
+    symbols: [recordWebSearchCall, captureRerankSearchUnits, ApplyChannelCachedTokensRatioToUsage, GenerateTextOtherInfo]
+    behavior:
+      - Responses 的动态 web search、`web_search_call` 与 `image_generation_call` 按实际调用次数计费。
+      - Rerank 按 search units 归一化 usage；渠道 cached-token 比例在计费前应用。
+      - 错误响应仍记录 prompt tokens；工具费用与调用次数写入日志，展示精度保留 6 位。
+    verification:
+      - go test ./relay/... ./service ./controller
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: sensitive-request-redaction
+    status: approved
+    category: backend
+    source_commits: ["8c3ca757e", "39705b241"]
+    paths:
+      - controller/relay.go
+      - service/sensitive_redact.go
+      - service/sensitive_test.go
+    symbols: [RedactSensitiveInfoRequest, RedactSensitiveInfoText, redactSensitiveInfoRawJSONWithPreservePath]
+    behavior:
+      - Relay 在转发前识别并遮蔽 API Key、Bearer Token、钱包私钥与助记词。
+      - 支持 OpenAI、Responses、Claude、Gemini、图片、音频、Embedding、Rerank 等请求结构。
+      - 媒体载荷及协议定义的不透明字段按白名单保留，避免破坏合法二进制/编码内容。
+    verification:
+      - go test ./service ./controller
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: invite-required-signup-and-daily-cashback
+    status: approved
+    category: backend
+    source_commits: ["2a4fad3a3", "b6d771d0c", "c2cce44e3"]
+    paths:
+      - common/constants.go
+      - common/init.go
+      - controller/user.go
+      - model/invite_cashback.go
+      - model/main.go
+      - model/user.go
+      - service/invite_cashback_task.go
+      - web/src/features/auth/sign-up/components/sign-up-form.tsx
+      - web/src/features/wallet/components/dialogs/transfer-dialog.tsx
+    symbols: [Register, TransferAffQuota, StartInviteCashbackTask, ApplyInviteCashback]
+    behavior:
+      - 注册必须提供有效邀请码。
+      - 每日按被邀请人上一日钱包净消费计算返现，幂等写入记录并增加邀请人余额。
+      - 用户可将邀请奖励额度转入可用余额。
+    verification:
+      - go test ./controller ./model ./service
+      - cd web && bun run typecheck && bun run build
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: trusted-proxy-defaults
+    status: approved
+    category: backend
+    source_commits: ["817c23ba7", "5cd4ccf88"]
+    paths:
+      - middleware/trusted_proxies.go
+      - middleware/trusted_proxies_test.go
+    symbols: [ConfigureTrustedProxies]
+    behavior:
+      - 未配置 `TRUSTED_PROXIES` 时默认信任私网回环及 Cloudflare 网段。
+      - 显式配置在默认列表上追加；`none` 可完全禁用可信代理。
+    verification:
+      - go test ./middleware
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: channel-admin-local-defaults
+    status: approved
+    category: ui
+    source_commits: ["b2781af4b", "b2f9667bb", "ec6e9986e"]
+    paths:
+      - controller/channel-test.go
+      - relaykit/dto/channel_settings.go
+      - web/src/features/channels/components/dialogs/channel-test-dialog.tsx
+      - web/src/features/channels/components/dialogs/param-override-editor-dialog.tsx
+      - web/src/features/channels/components/drawers/channel-mutate-drawer.tsx
+      - web/src/features/channels/lib/channel-form.ts
+    symbols: [ChannelTestDialogContent, ParamOverrideEditorDialog]
+    behavior:
+      - 渠道测试弹窗默认启用流式测试。
+      - 参数覆盖按 JSON 编辑与展示，并保留本地渠道设置校验语义。
+    verification:
+      - cd relaykit && GOWORK=off go test ./...
+      - cd web && bun run typecheck && bun run build
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: usage-log-observability-ui
+    status: approved
+    category: ui
+    source_commits: ["f24a5137c", "8a43a4b47", "6fd452927", "ae32dd383", "39ce6493c", "33ca91330", "4420a8ac4", "3b3700617", "f802daedf", "22766f8f7", "9b1123f7c", "5fec4cb55", "a9a2092db", "f29da41dc"]
+    paths:
+      - controller/log.go
+      - model/log.go
+      - web/src/features/profile/components/tabs/notification-tab.tsx
+      - web/src/features/usage-logs/**
+      - web/src/lib/format.ts
+    symbols: [DetailsDialog, formatModelName, parseLogOther, formatLogQuota]
+    behavior:
+      - 日志记录并仅向管理员展示请求 User-Agent、取消状态、完整 IP 与流状态详情。
+      - 日志页支持自动刷新、本地默认时间范围、模型映射分层、Claude cache、缓存占比及工具调用展示。
+      - Token/费用格式按本地精度展示，输入 token 可按缓存 token 拆分显示；客户端筛选被禁用。
+      - 个人通知页隐藏“记录 IP”开关。
+    verification:
+      - go test ./controller ./model
+      - cd web && bun run typecheck && bun run build
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: local-ui-brand-layout-and-product-surface
+    status: approved
+    category: ui
+    source_commits: ["b568c3d7d", "5b0ccc574", "167f65319", "129d1bb89", "67968e290", "029928d3c", "76ffa51b9", "6834d928e", "1a0aa5ea9", "a9c004cf4"]
+    paths:
+      - web/index.html
+      - web/package.json
+      - web/public/**
+      - web/rsbuild.config.ts
+      - web/src/components/layout/**
+      - web/src/components/ui/**
+      - web/src/context/**
+      - web/src/features/dashboard/components/**
+      - web/src/features/home/**
+      - web/src/features/model-status/**
+      - web/src/features/pricing/**
+      - web/src/features/rankings/**
+      - web/src/features/wallet/components/recharge-form-card.tsx
+      - web/src/routes/model-status/**
+      - web/src/styles/**
+    symbols: [ThemeProvider, OverviewDashboard, PricingSidebar, ModelStatus]
+    behavior:
+      - 前端采用本地单主题视觉体系、MiSans 字体、本地 Logo 与统一装饰色。
+      - 首页、Dashboard、Pricing、Rankings 与导航保持本地布局；首页部分功能区与价格模型详情被隐藏。
+      - 提供本地模型状态页及其嵌入代理；兑换码入口显示为醒目主按钮。
+    verification:
+      - cd web && bun run typecheck && bun run build
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: dashboard-admin-metric-obfuscation
+    status: approved
+    category: ui
+    source_commits: ["b9416cadc", "da7269fd2"]
+    paths:
+      - web/src/features/dashboard/api.ts
+    symbols: [getUserQuotaDates]
+    behavior:
+      - 管理员查看未按用户名筛选的 Dashboard 聚合数据时，将 `token_used`、`count`、`quota` 乘以固定系数 `21.23456`。
+      - 普通用户及按用户名筛选的管理员仍显示真实响应值。
+    review_note: 用户已明确选择保护该固定倍率展示行为。
+    verification:
+      - cd web && bun run typecheck && bun run build
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: local-dev-build-and-ci-policy
+    status: approved
+    category: ops
+    source_commits: ["59f1b4173", "2d15d1f7d", "53721c60e", "769c79eb5", "51b72d4d8", "925c54a2e", "2e3f08230", "7040e41b8"]
+    paths:
+      - Dockerfile.dev
+      - .github/workflows/docker-build.yml
+      - .github/workflows/electron-build.yml
+      - .github/workflows/pr-check.yml
+      - .github/workflows/release.yml
+    symbols: []
+    behavior:
+      - Docker 开发构建显式加载 relaykit Go 模块。
+      - CI 仅保留本地 Docker 构建策略；上游 Electron、PR Check 与 Release 工作流保持删除。
+    verification:
+      - docker build -f Dockerfile.dev --progress=plain -t ai-hub-dev-ledger-check .
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: release-version-automation
+    status: approved
+    category: ops
+    source_commits: ["a6b6d57e3", "f99e8f3ba"]
+    paths:
+      - .agents/skills/release-version/SKILL.md
+      - .agents/skills/release-version/agents/openai.yaml
+    symbols: []
+    behavior:
+      - 发版使用中国标准时间生成 `vYY.MM.DD.HHMM` 标签并推送 origin。
+      - 打标签前校验 Bun 锁文件；必要时运行 Docker `builder2` 预检完整构建链。
+    verification:
+      - cd web && bun install --frozen-lockfile
+      - docker build --target builder2 --progress=plain -t ai-hub-release-check .
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
