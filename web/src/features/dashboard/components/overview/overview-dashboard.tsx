@@ -753,18 +753,13 @@ export function OverviewDashboard() {
 
       {showContentPanels && (
         <CardStaggerContainer
-          className={cn(
-            'grid grid-cols-1 gap-4',
-            showLeftContentPanels &&
-              showUptimePanel &&
-              'xl:grid-cols-[minmax(0,1fr)_22rem]'
-          )}
+          className='grid grid-cols-1 gap-4'
         >
           {showLeftContentPanels && (
             <div
               className={cn(
                 'grid min-w-0 grid-cols-1 gap-4',
-                (showApiInfoPanel || showAnnouncementsPanel || showFAQPanel) &&
+                (showApiInfoPanel || showAnnouncementsPanel || showUptimePanel || showFAQPanel) &&
                   'lg:grid-cols-2'
               )}
             >
@@ -783,17 +778,17 @@ export function OverviewDashboard() {
                   <AnnouncementsPanel />
                 </CardStaggerItem>
               )}
+              {showUptimePanel && (
+                <CardStaggerItem>
+                  <UptimePanel />
+                </CardStaggerItem>
+              )}
               {showFAQPanel && (
                 <CardStaggerItem>
                   <FAQPanel />
                 </CardStaggerItem>
               )}
             </div>
-          )}
-          {showUptimePanel && (
-            <CardStaggerItem>
-              <UptimePanel />
-            </CardStaggerItem>
           )}
         </CardStaggerContainer>
       )}
