@@ -1,0 +1,29 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="256"
+  height="256"
+  viewBox="0 0 28 28"
+  fill="none"
+  color="#151515"
+  shape-rendering="geometricPrecision"
+  role="img"
+  aria-labelledby="ai-hub-mark-title ai-hub-mark-description"
+>
+  <title id="ai-hub-mark-title">AI Hub 开放交点核心标志</title>
+  <desc id="ai-hub-mark-description">
+    四枚圆角开放角标围合一枚橙色方形节点，表达多向接入、开放连接与中心汇聚。
+  </desc>
+  <g
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M11 5H7a2 2 0 0 0-2 2v4" />
+    <path d="M17 5h4a2 2 0 0 1 2 2v4" />
+    <path d="M23 17v4a2 2 0 0 1-2 2h-4" />
+    <path d="M11 23H7a2 2 0 0 1-2-2v-4" />
+  </g>
+  <rect x="12" y="12" width="4" height="4" rx="1" fill="#FF6B00" />
+</svg>
