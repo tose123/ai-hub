@@ -18,7 +18,7 @@ defaults:
 bootstrap:
   state: complete
   source_merge_base: 1db6ae19576d7019fec38cc63a3b94ce609c92c9
-  reviewed_local_head: 4c1c7b9492eda08032c595f07d72cd256c2958d7
+  reviewed_local_head: a18c14be539aaac245131d63defe2fcdb6f26f0f
 
 # 已审阅条目使用以下结构：
 # - id: anytools-shared-auth
