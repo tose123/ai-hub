@@ -18,8 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 @theme inline {
   --font-sans:
-    'Manrope Variable', 'Manrope', 'PingFang SC', 'Microsoft YaHei',
-    'Noto Sans CJK SC', sans-serif;
+    'MiSans', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
   --font-serif:
     'Playfair Display Variable', 'Playfair Display', 'Songti SC', 'STSong',
     'Noto Serif CJK SC', Georgia, serif;
