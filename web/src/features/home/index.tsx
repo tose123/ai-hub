@@ -119,7 +119,7 @@ export function Home() {
     <PublicLayout showMainContainer={false}>
       <Hero isAuthenticated={isAuthenticated} />
       <Stats />
-      <Features />
+      {/* <Features /> */}
       <HowItWorks />
       <CTA isAuthenticated={isAuthenticated} />
       <Footer />
