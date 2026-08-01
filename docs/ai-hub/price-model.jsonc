@@ -108,7 +108,7 @@
     "google_search": 14.2857142857,
     "x_search": 14.2857142857,
     "web_search": 7.1428571429,
-    "web_search:grok-4.5*": 0.7142857143,
+    "web_search:grok-4.5*": 7.1428571429,
     "web_search_preview": 7.1428571429
   }
 ]
