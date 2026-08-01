@@ -1,0 +1,20 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="256"
+  height="256"
+  viewBox="0 0 64 64"
+  fill="none"
+  shape-rendering="geometricPrecision"
+  role="img"
+  aria-labelledby="ai-hub-ah-v2-title ai-hub-ah-v2-description"
+>
+  <title id="ai-hub-ah-v2-title">AI Hub AH 连体标志</title>
+  <desc id="ai-hub-ah-v2-description">
+    橙色 A 左斜带与黑色 AH 连体主形留有断点，黑色主形由单一路径连续构成。
+  </desc>
+  <path fill="#FF6B00" d="M14.3 16.7 19.7 30.8 13.8 48H3.2l11.1-31.3Z" />
+  <path
+    fill="#151515"
+    d="M16.5 16H28l4.6 11.4h8.6L36.6 16h11.8L53 27.4l8.3 21H49.4L44.5 36h-9.3l4.9 12.4H28.4L16.5 16Z"
+  />
+</svg>
