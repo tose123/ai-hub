@@ -34,14 +34,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { useMediaQuery } from '@/hooks'
 import { cn } from '@/lib/utils'
 
-import {
-  AUTO_GROUP_FRAME_CLASS_NAME,
-  AutoGroupFlowBorder,
-  GroupRatioBadge,
-} from './auto-group-visuals'
+import { GroupRatioBadge } from './auto-group-visuals'
 
 export type ApiKeyGroupOption = {
   value: string
@@ -68,15 +63,18 @@ export function ApiKeyGroupCombobox({
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [searchValue, setSearchValue] = useState('')
-  const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const selectedOption = options.find((option) => option.value === value)
-  const isAutoSelected = selectedOption?.value === 'auto'
 
   const filteredOptions = useMemo(() => {
+    const orderedOptions = [...options].sort((left, right) => {
+      if (left.value === 'auto') return -1
+      if (right.value === 'auto') return 1
+      return 0
+    })
     const search = searchValue.trim().toLowerCase()
-    if (!search) return options
+    if (!search) return orderedOptions
 
-    return options.filter((option) => {
+    return orderedOptions.filter((option) => {
       const ratioText = String(option.ratio ?? '').toLowerCase()
       return (
         option.value.toLowerCase().includes(search) ||
@@ -102,22 +100,11 @@ export function ApiKeyGroupCombobox({
             variant='outline'
             role='combobox'
             aria-expanded={open}
-            data-auto-group-effect={isAutoSelected ? 'trigger' : undefined}
             disabled={disabled}
-            className={cn(
-              'border-input bg-muted/40 hover:bg-muted/55 hover:text-foreground active:bg-background data-popup-open:border-ring data-popup-open:bg-background data-popup-open:ring-ring/20 relative h-auto min-h-14 w-full justify-between gap-2 rounded-lg px-3 py-2 text-start shadow-none transition-[background-color,border-color,box-shadow] duration-150 data-popup-open:ring-[3px] sm:min-h-20 sm:gap-3 sm:px-4 sm:py-3',
-              isAutoSelected &&
-                cn(
-                  AUTO_GROUP_FRAME_CLASS_NAME,
-                  'hover:border-primary/55 data-popup-open:border-primary/55 data-popup-open:ring-primary/20'
-                )
-            )}
+            className='border-input bg-muted/40 hover:bg-muted/55 hover:text-foreground active:bg-background data-popup-open:border-ring data-popup-open:bg-background data-popup-open:ring-ring/20 relative h-auto min-h-14 w-full justify-between gap-2 rounded-lg px-3 py-2 text-start shadow-none transition-[background-color,border-color,box-shadow] duration-150 data-popup-open:ring-[3px] sm:min-h-20 sm:gap-3 sm:px-4 sm:py-3'
           />
         }
       >
-        {isAutoSelected && (
-          <AutoGroupFlowBorder shouldReduceMotion={shouldReduceMotion} />
-        )}
         <span className='flex min-w-0 flex-1 items-center justify-between gap-2 sm:gap-3'>
           <span className='min-w-0'>
             <span className='block truncate font-medium'>
@@ -130,11 +117,7 @@ export function ApiKeyGroupCombobox({
             )}
           </span>
           <span className='hidden sm:block'>
-            <GroupRatioBadge
-              ratio={selectedOption?.ratio}
-              isAuto={isAutoSelected}
-              shouldReduceMotion={shouldReduceMotion}
-            />
+            <GroupRatioBadge ratio={selectedOption?.ratio} />
           </span>
         </span>
         <ChevronsUpDown
@@ -158,28 +141,13 @@ export function ApiKeyGroupCombobox({
             <CommandEmpty>{t('No group found.')}</CommandEmpty>
             <CommandGroup>
               {filteredOptions.map((option) => {
-                const isAutoOption = option.value === 'auto'
-
                 return (
                   <CommandItem
                     key={option.value}
                     value={option.value}
-                    data-auto-group-effect={isAutoOption ? 'option' : undefined}
                     onSelect={() => handleSelect(option.value)}
-                    className={cn(
-                      'data-[selected=true]:bg-muted items-start gap-3 rounded-lg px-3 py-3 transition-colors',
-                      isAutoOption &&
-                        cn(
-                          AUTO_GROUP_FRAME_CLASS_NAME,
-                          'border-primary/35 data-[selected=true]:border-primary/55'
-                        )
-                    )}
+                    className='data-[selected=true]:bg-muted items-start gap-3 rounded-lg px-3 py-3 transition-colors'
                   >
-                    {isAutoOption && (
-                      <AutoGroupFlowBorder
-                        shouldReduceMotion={shouldReduceMotion}
-                      />
-                    )}
                     <Check
                       aria-hidden='true'
                       className={cn(
@@ -197,11 +165,7 @@ export function ApiKeyGroupCombobox({
                         </span>
                       )}
                     </span>
-                    <GroupRatioBadge
-                      ratio={option.ratio}
-                      isAuto={isAutoOption}
-                      shouldReduceMotion={shouldReduceMotion}
-                    />
+                    <GroupRatioBadge ratio={option.ratio} />
                   </CommandItem>
                 )
               })}

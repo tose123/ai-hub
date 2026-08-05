@@ -525,6 +525,7 @@
     "Automatically probe all channels in the background": "Tự động dò tất cả các kênh trong nền",
     "Automatically replaces upstream callback URLs with the server address.": "Tự động thay thế URL callback upstream bằng địa chỉ máy chủ.",
     "Automatically selects the best available group with circuit breaker mechanism": "Tự động chọn nhóm tốt nhất hiện có với cơ chế ngắt mạch",
+    "Automatically selects the most available group in ascending price order.": "Tự động chọn nhóm có tính khả dụng cao nhất theo thứ tự giá tăng dần.",
     "Automatically sync model list when upstream changes are detected": "Tự động đồng bộ danh sách mô hình khi phát hiện thay đổi từ nguồn",
     "Availability (last 24h)": "Khả dụng (24 giờ qua)",
     "Available": "Khả dụng",

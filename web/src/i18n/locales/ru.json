@@ -525,6 +525,7 @@
     "Automatically probe all channels in the background": "Автоматически проверять все каналы в фоновом режиме",
     "Automatically replaces upstream callback URLs with the server address.": "Автоматически заменяет URL обратных вызовов upstream на адрес сервера.",
     "Automatically selects the best available group with circuit breaker mechanism": "Автоматически выбирает лучшую доступную группу с механизмом circuit breaker",
+    "Automatically selects the most available group in ascending price order.": "Автоматически выбирает наиболее доступную группу в порядке возрастания цены.",
     "Automatically sync model list when upstream changes are detected": "Автоматически синхронизировать список моделей при обнаружении изменений у провайдера",
     "Availability (last 24h)": "Доступность (последние 24 ч)",
     "Available": "Доступно",

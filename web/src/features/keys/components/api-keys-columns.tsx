@@ -28,7 +28,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { useMediaQuery } from '@/hooks'
 import { toIntlLocale } from '@/i18n/languages'
 import { getUserGroups } from '@/lib/api'
 import dayjs from '@/lib/dayjs'
@@ -76,7 +75,6 @@ function useGroupRatios(): Record<string, number | string> {
 export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
   const { t, i18n } = useTranslation()
   const groupRatios = useGroupRatios()
-  const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const justNowLabel = t('Just now')
   const staleAccessThreshold = dayjs(now).subtract(3, 'month').valueOf()
@@ -194,16 +192,8 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
       accessorKey: 'group',
       header: t('Group'),
       cell: ({ row }) => {
-        const apiKey = row.original
         const group = row.getValue('group') as string
-        return (
-          <ApiKeyGroupCell
-            group={group}
-            ratio={groupRatios[group]}
-            crossGroupRetry={apiKey.cross_group_retry}
-            shouldReduceMotion={shouldReduceMotion}
-          />
-        )
+        return <ApiKeyGroupCell group={group} ratio={groupRatios[group]} />
       },
       size: 220,
       meta: { mobileHidden: true },

@@ -102,9 +102,9 @@ function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
           data: {
             success: true,
             data: {
-              auto: { desc: 'Automatic routing', ratio: 'auto' },
               default: { desc: 'Standard access', ratio: 1 },
               vip: { desc: 'Priority access', ratio: 2 },
+              auto: { desc: 'Automatic routing', ratio: 'auto' },
             },
           },
         }
@@ -177,9 +177,9 @@ async function renderCreateDrawer(): Promise<void> {
     {
       success: true,
       data: {
-        auto: { desc: 'Automatic routing', ratio: 'auto' },
         default: { desc: 'Standard access', ratio: 1 },
         vip: { desc: 'Priority access', ratio: 2 },
+        auto: { desc: 'Automatic routing', ratio: 'auto' },
       },
     },
     { updatedAt: freshAt }
@@ -293,6 +293,37 @@ describe('API keys mutate drawer Auto group integration', () => {
     assert.equal(groupTrigger.textContent?.includes('auto'), true)
     assert.equal(
       document.body.textContent?.includes(
+        'Automatically selects the most available group in ascending price order.'
+      ),
+      true
+    )
+    assert.equal(
+      document.body.textContent?.includes('Cross-group retry'),
+      false
+    )
+
+    await act(async () => groupTrigger.click())
+    const groupOptions = [
+      ...document.querySelectorAll<HTMLElement>('[data-slot="command-item"]'),
+    ]
+    assert.equal(
+      groupOptions[0]?.textContent?.includes('Automatic routing'),
+      true
+    )
+    await act(async () => groupOptions[0]?.click())
+
+    const autoOrderTrigger = findButton('Auto group order', true)
+    assert.equal(autoOrderTrigger.getAttribute('aria-expanded'), 'false')
+    assert.equal(document.querySelectorAll('button[role="combobox"]').length, 1)
+    assert.equal(
+      document.querySelector('[role="group"][aria-label="Auto group order"]'),
+      null
+    )
+
+    await act(async () => autoOrderTrigger.click())
+    assert.equal(autoOrderTrigger.getAttribute('aria-expanded'), 'true')
+    assert.equal(
+      document.body.textContent?.includes(
         'Using the complete global Auto order (2 groups)'
       ),
       true
@@ -329,7 +360,11 @@ describe('API keys mutate drawer Auto group integration', () => {
     installApiFixtures(createdPayloads)
     await renderCreateDrawer()
 
-    const autoOrderControl = getControlByLabel<HTMLElement>('Auto group order')
+    await act(async () => findButton('Auto group order', true).click())
+    const autoOrderControl = document.querySelector<HTMLElement>(
+      '[role="group"][aria-label="Auto group order"]'
+    )
+    assert.ok(autoOrderControl)
     const addGroupTrigger = autoOrderControl.querySelector<HTMLButtonElement>(
       'button[role="combobox"]'
     )
@@ -351,6 +386,12 @@ describe('API keys mutate drawer Auto group integration', () => {
     )
     await selectComboboxOption(groupTrigger, 'Automatic routing')
 
+    const restoredAutoOrderTrigger = findButton('Auto group order', true)
+    assert.equal(
+      restoredAutoOrderTrigger.getAttribute('aria-expanded'),
+      'false'
+    )
+    await act(async () => restoredAutoOrderTrigger.click())
     assert.ok(document.querySelector('button[aria-label="Remove vip"]'))
     assert.equal(
       document.body.textContent?.includes('1 / 3 groups selected'),

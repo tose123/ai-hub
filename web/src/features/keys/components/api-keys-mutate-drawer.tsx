@@ -107,6 +107,7 @@ export function ApiKeysMutateDrawer({
   const { triggerRefresh } = useApiKeys()
   const { status, loading: statusLoading } = useStatus()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [autoGroupsOpen, setAutoGroupsOpen] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [initializedTarget, setInitializedTarget] = useState<string | null>(
     null
@@ -203,6 +204,7 @@ export function ApiKeysMutateDrawer({
   useEffect(() => {
     if (!open) {
       setInitializedTarget(null)
+      setAutoGroupsOpen(false)
       return
     }
     if (
@@ -425,6 +427,7 @@ export function ApiKeysMutateDrawer({
                         value={field.value}
                         onValueChange={(group) => {
                           field.onChange(group)
+                          setAutoGroupsOpen(false)
                           if (group === 'auto') {
                             form.setValue('cross_group_retry', true, {
                               shouldDirty: true,
@@ -438,74 +441,89 @@ export function ApiKeysMutateDrawer({
                         placeholder={t('Select a group')}
                       />
                     </FormControl>
+                    {selectedGroup === 'auto' && (
+                      <FormDescription>
+                        {t(
+                          'Automatically selects the most available group in ascending price order.'
+                        )}
+                      </FormDescription>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
               {selectedGroup === 'auto' && (
-                <FormField
-                  control={form.control}
-                  name='auto_groups'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Auto group order')}</FormLabel>
-                      <FormDescription>
+                <Collapsible
+                  open={autoGroupsOpen}
+                  onOpenChange={setAutoGroupsOpen}
+                >
+                  <CollapsibleTrigger
+                    render={
+                      <button
+                        type='button'
+                        className='hover:bg-muted/40 flex w-full items-center gap-3 rounded-md py-1.5 text-left transition-colors'
+                      />
+                    }
+                  >
+                    <span className='flex min-w-0 flex-1 flex-col gap-0.5'>
+                      <span className='text-sm font-medium'>
+                        {t('Auto group order')}
+                      </span>
+                      <span className='text-muted-foreground text-xs'>
                         {t(
                           'Choose and order the groups this API key will try.'
                         )}
-                      </FormDescription>
-                      <FormControl>
-                        <AutoGroupOrderEditor
-                          value={field.value}
-                          mode={autoGroupsMode}
-                          options={groups}
-                          globalOptions={globalAutoGroupOptions}
-                          maxCount={maxAutoGroups}
-                          onChange={(value) => {
-                            form.setValue('auto_groups_mode', value.mode, {
-                              shouldDirty: true,
-                              shouldValidate: false,
-                            })
-                            form.setValue(
-                              'auto_groups',
-                              value.groups.slice(0, maxAutoGroups),
-                              {
-                                shouldDirty: true,
-                                shouldValidate: true,
-                              }
-                            )
-                          }}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-
-              {selectedGroup === 'auto' && (
-                <FormField
-                  control={form.control}
-                  name='cross_group_retry'
-                  render={() => (
-                    <FormItem className={sideDrawerSwitchItemClassName()}>
-                      <div className='flex flex-col gap-0.5'>
-                        <FormLabel className='text-sm'>
-                          {t('Cross-group retry')}
-                        </FormLabel>
-                        <FormDescription className='line-clamp-2 text-xs sm:line-clamp-none'>
-                          {t(
-                            'When enabled, if channels in the current group fail, it will try channels in the next group in order.'
-                          )}
-                        </FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch checked disabled />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
+                      </span>
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        'text-muted-foreground size-4 shrink-0 transition-transform',
+                        autoGroupsOpen && 'rotate-180'
+                      )}
+                    />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className='pt-3'>
+                      <FormField
+                        control={form.control}
+                        name='auto_groups'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl>
+                              <AutoGroupOrderEditor
+                                value={field.value}
+                                mode={autoGroupsMode}
+                                options={groups}
+                                globalOptions={globalAutoGroupOptions}
+                                maxCount={maxAutoGroups}
+                                onChange={(value) => {
+                                  form.setValue(
+                                    'auto_groups_mode',
+                                    value.mode,
+                                    {
+                                      shouldDirty: true,
+                                      shouldValidate: false,
+                                    }
+                                  )
+                                  form.setValue(
+                                    'auto_groups',
+                                    value.groups.slice(0, maxAutoGroups),
+                                    {
+                                      shouldDirty: true,
+                                      shouldValidate: true,
+                                    }
+                                  )
+                                }}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               )}
 
               <FormField
