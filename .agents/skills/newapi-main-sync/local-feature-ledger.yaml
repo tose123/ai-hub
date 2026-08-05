@@ -18,7 +18,7 @@ defaults:
 bootstrap:
   state: complete
   source_merge_base: 1db6ae19576d7019fec38cc63a3b94ce609c92c9
-  reviewed_local_head: 3ab981d706ffbd6fa6aa629245728b3d74f02685
+  reviewed_local_head: 7f967219535089fbfe93717029ea03faa0e06bed
 
 # 已审阅条目使用以下结构：
 # - id: anytools-shared-auth
@@ -58,7 +58,7 @@ features:
   - id: token-auto-groups-and-cross-group-retry
     status: approved
     category: backend
-    source_commits: ["834f86869", "8728ffa16", "4f165ff6d", "d2fa3b121", "e35ff78d5", "eb94dcd81"]
+    source_commits: ["834f86869", "8728ffa16", "4f165ff6d", "d2fa3b121", "e35ff78d5", "eb94dcd81", "7f9672195"]
     paths:
       - constant/context_key.go
       - controller/model.go
@@ -71,14 +71,17 @@ features:
       - service/group.go
       - web/src/features/keys/**
       - web/src/features/playground/constants.ts
-    symbols: [TokenAutoGroups, GetRequestAutoGroups, FilterUserTokenAutoGroups, CacheGetRandomSatisfiedChannel]
+    symbols: [TokenAutoGroups, GetRequestAutoGroups, FilterUserTokenAutoGroups, CacheGetRandomSatisfiedChannel, ApiKeyGroupCell, ApiKeyGroupCombobox, ApiKeysMutateDrawer, AutoGroupOrderEditor]
     behavior:
       - API Key 仅以 `auto_groups` 保存有序自动分组；缺失、`null` 或空数组继承完整全局 Auto，切离 `auto` 时清空，校验与权限过滤采用上游契约。
       - 新建或更新后的 `auto` Key 必须启用跨分组重试；旧数据不迁移。Playground 默认选择 `auto`，其临时 Token 同样强制跨分组重试。
       - 模型列表使用解析后的令牌级顺序；渠道选择仍保留本地优先级、亲和回退、失败渠道排除及同组耗尽后跨组的契约。
-    review_note: 用户于 2026-08-05 确认采用上游 Auto Group 存储、校验、权限与 tiered billing 语义，同时保留本地渠道选择、模型映射及默认跨组重试行为。
+      - /keys 表格中的 Auto 分组仅显示普通 Auto 徽标，不显示跨分组状态、倍率或动画边框；Key 抽屉中 Auto 选项始终置顶，Auto 倍率使用普通边框。
+      - 选择 Auto 时显示按价格由低到高自动选择可用分组的提示；跨分组重试配置从 UI 隐藏但提交仍强制启用；令牌级 Auto 分组排序默认折叠，切换分组或关闭抽屉后恢复折叠。
+    review_note: 用户于 2026-08-05 确认采用上游 Auto Group 存储、校验、权限与 tiered billing 语义，同时保留本地渠道选择、模型映射及默认跨组重试行为；同日确认简化 Key 的 Auto 展示并默认折叠令牌级排序设置。
     verification:
       - go test ./controller ./model ./middleware ./service
+      - cd web && bun test
       - cd web && bun run typecheck && bun run build
     protection: preserve_local_behavior
     upstream_security_overlap: ask_user
