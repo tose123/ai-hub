@@ -19,8 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import type { TFunction } from 'i18next'
 import { z } from 'zod'
 
-import { parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
 import { validateModelMappingJson } from '@/features/channels/lib/model-mapping-validation'
+import { parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
+
 import { DEFAULT_GROUP } from '../constants'
 import type { ApiKey, ApiKeyFormData } from '../types'
 
@@ -28,7 +29,10 @@ import type { ApiKey, ApiKeyFormData } from '../types'
 // Form Schema
 // ============================================================================
 
-export function getApiKeyFormSchema(t: TFunction) {
+export function getApiKeyFormSchema(t: TFunction, maxAutoGroups = 5) {
+  const autoGroupLimit =
+    Number.isInteger(maxAutoGroups) && maxAutoGroups > 0 ? maxAutoGroups : 5
+
   return z
     .object({
       name: z.string().min(1, t('Please enter a name')),
@@ -39,11 +43,45 @@ export function getApiKeyFormSchema(t: TFunction) {
       model_mapping: z.string().optional(),
       allow_ips: z.string().optional(),
       group: z.string().optional(),
-      auto_groups_override: z.array(z.string()).optional(),
+      auto_groups_mode: z.enum(['inherit', 'custom']),
+      auto_groups: z.array(z.string()),
       cross_group_retry: z.boolean().optional(),
       tokenCount: z.number().min(1).optional(),
     })
     .superRefine((data, ctx) => {
+      if (data.group === 'auto') {
+        if (
+          data.auto_groups_mode === 'custom' &&
+          data.auto_groups.length === 0
+        ) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['auto_groups'],
+            message: t(
+              'Select at least one Auto group or restore global Auto.'
+            ),
+          })
+        }
+
+        if (data.auto_groups.length > autoGroupLimit) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['auto_groups'],
+            message: t('Select at most {{max}} Auto groups', {
+              max: autoGroupLimit,
+            }),
+          })
+        }
+
+        if (new Set(data.auto_groups).size !== data.auto_groups.length) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['auto_groups'],
+            message: t('Auto groups must not contain duplicates'),
+          })
+        }
+      }
+
       if (data.unlimited_quota) {
         return
       }
@@ -91,7 +129,8 @@ export const API_KEY_FORM_DEFAULT_VALUES: ApiKeyFormValues = {
   model_mapping: '',
   allow_ips: '',
   group: DEFAULT_GROUP,
-  auto_groups_override: [],
+  auto_groups_mode: 'inherit',
+  auto_groups: [],
   cross_group_retry: true,
   tokenCount: 1,
 }
@@ -102,6 +141,8 @@ export function getApiKeyFormDefaultValues(
   return {
     ...API_KEY_FORM_DEFAULT_VALUES,
     group: defaultUseAutoGroup ? 'auto' : DEFAULT_GROUP,
+    auto_groups_mode: 'inherit',
+    auto_groups: [],
     cross_group_retry: defaultUseAutoGroup,
   }
 }
@@ -116,8 +157,6 @@ export function getApiKeyFormDefaultValues(
 export function transformFormDataToPayload(
   data: ApiKeyFormValues
 ): ApiKeyFormData {
-  const normalizedAutoGroups = (data.auto_groups_override || []).filter(Boolean)
-
   return {
     name: data.name,
     remain_quota: data.unlimited_quota
@@ -132,11 +171,11 @@ export function transformFormDataToPayload(
     model_mapping: data.model_mapping?.trim() || '',
     allow_ips: data.allow_ips || '',
     group: data.group || '',
-    auto_groups_override:
-      data.group === 'auto' && normalizedAutoGroups.length > 0
-        ? normalizedAutoGroups
-        : undefined,
-    cross_group_retry: data.group === 'auto' ? !!data.cross_group_retry : false,
+    auto_groups:
+      data.group === 'auto' && data.auto_groups_mode === 'custom'
+        ? data.auto_groups
+        : [],
+    cross_group_retry: data.group === 'auto',
   }
 }
 
@@ -145,8 +184,16 @@ export function transformFormDataToPayload(
  */
 export function transformApiKeyToFormDefaults(
   apiKey: ApiKey,
-  defaultAutoGroupsOverride: string[] = []
+  availableAutoGroups: string[] = [],
+  maxAutoGroups = 5
 ): ApiKeyFormValues {
+  const availableSet = new Set(availableAutoGroups)
+  const storedAutoGroups = apiKey.auto_groups ?? []
+  const autoGroups = storedAutoGroups
+    .filter((group) => availableSet.has(group))
+    .slice(0, Math.max(0, maxAutoGroups))
+  const autoGroupsMode = storedAutoGroups.length > 0 ? 'custom' : 'inherit'
+
   return {
     name: apiKey.name,
     remain_quota_dollars: apiKey.unlimited_quota
@@ -163,8 +210,9 @@ export function transformApiKeyToFormDefaults(
     model_mapping: apiKey.model_mapping || '',
     allow_ips: apiKey.allow_ips || '',
     group: apiKey.group || DEFAULT_GROUP,
-    auto_groups_override: apiKey.auto_groups_override || defaultAutoGroupsOverride,
-    cross_group_retry: !!apiKey.cross_group_retry,
+    auto_groups_mode: autoGroupsMode,
+    auto_groups: autoGroups,
+    cross_group_retry: apiKey.group === 'auto',
     tokenCount: 1,
   }
 }

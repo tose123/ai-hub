@@ -123,7 +123,7 @@ func Distribute() func(c *gin.Context) {
 						model.ChannelSupportsRequestPath(preferred, c.Request.URL.Path) {
 						if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
-							autoGroups := service.GetTokenAwareAutoGroups(c, userGroup)
+							autoGroups := service.GetRequestAutoGroups(c, userGroup)
 							for _, g := range autoGroups {
 								if model.IsChannelEnabledForGroupModel(g, baseModel, preferred.Id) {
 									selectGroup = g

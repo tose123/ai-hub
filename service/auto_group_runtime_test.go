@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
@@ -75,15 +76,22 @@ func withRuntimeUserUsableGroups(t *testing.T, groups []string) {
 	t.Helper()
 
 	original := setting.UserUsableGroups2JSONString()
+	originalRatios := ratio_setting.GroupRatio2JSONString()
 	groupMap := make(map[string]string, len(groups))
+	ratioMap := make(map[string]float64, len(groups))
 	for _, group := range groups {
 		groupMap[group] = group
+		ratioMap[group] = 1
 	}
 	data, err := common.Marshal(groupMap)
 	require.NoError(t, err)
+	ratioData, err := common.Marshal(ratioMap)
+	require.NoError(t, err)
 	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(string(data)))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(string(ratioData)))
 	t.Cleanup(func() {
 		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(original))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
 	})
 }
 
@@ -120,7 +128,7 @@ func buildRuntimeAutoGroupContext(userGroup string, override []string) *gin.Cont
 	common.SetContextKey(ctx, constant.ContextKeyTokenGroup, "auto")
 	common.SetContextKey(ctx, constant.ContextKeyTokenCrossGroupRetry, false)
 	if override != nil {
-		common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroupsOverride, override)
+		common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, override)
 	}
 	return ctx
 }

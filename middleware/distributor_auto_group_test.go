@@ -78,7 +78,7 @@ func buildDistributorContext(override []string) (*gin.Context, *httptest.Respons
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, false)
 	common.SetContextKey(ctx, constant.ContextKeyTokenCrossGroupRetry, false)
 	if override != nil {
-		common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroupsOverride, override)
+		common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, override)
 	}
 	return ctx, rec
 }
@@ -113,7 +113,7 @@ func TestDistributorAffinityBranchUsesTokenAwareAutoGroups(t *testing.T) {
 	db := setupDistributorAutoGroupTestDB(t)
 	withDistributorAutoGroups(t, []string{"default", "vip"})
 	seedDistributorAutoGroupData(t, db)
-	ctx, rec := buildDistributorContext([]string{"vip"})	
+	ctx, rec := buildDistributorContext([]string{"vip"})
 	ctx.Request.Header.Set("User-Agent", "Codex CLI")
 	body := strings.NewReader(`{"model":"runtime-model","prompt_cache_key":"pc-hit"}`)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", body)

@@ -260,9 +260,6 @@ func migrateDB() error {
 	if err := ensureTokenModelMappingColumn(); err != nil {
 		return err
 	}
-	if err := ensureTokenAutoGroupsOverrideColumn(); err != nil {
-		return err
-	}
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -314,9 +311,6 @@ func migrateDB() error {
 		if err := ensureTokenModelMappingColumn(); err != nil {
 			return err
 		}
-		if err := ensureTokenAutoGroupsOverrideColumn(); err != nil {
-			return err
-		}
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {
 			return err
 		}
@@ -331,25 +325,6 @@ func migrateDB() error {
 func ensureTokenModelMappingColumn() error {
 	tableName := "tokens"
 	columnName := "model_mapping"
-
-	if !DB.Migrator().HasTable(tableName) {
-		return nil
-	}
-
-	if DB.Migrator().HasColumn(&Token{}, columnName) {
-		return nil
-	}
-
-	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
-		return DB.Exec("ALTER TABLE `" + tableName + "` ADD COLUMN `" + columnName + "` text").Error
-	}
-
-	return DB.Migrator().AddColumn(&Token{}, columnName)
-}
-
-func ensureTokenAutoGroupsOverrideColumn() error {
-	tableName := "tokens"
-	columnName := "auto_groups_override"
 
 	if !DB.Migrator().HasTable(tableName) {
 		return nil

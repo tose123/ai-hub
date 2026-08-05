@@ -1,13 +1,3 @@
-import { zodResolver } from '@hookform/resolvers/zod'
-import { useQuery } from '@tanstack/react-query'
-import {
-  ChevronDown,
-  GripVertical,
-  KeyRound,
-  Settings2,
-  Trash2,
-  WalletCards,
-} from 'lucide-react'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -26,7 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useQuery } from '@tanstack/react-query'
+import { ChevronDown, KeyRound, Settings2, WalletCards } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm, type SubmitErrorHandler } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -43,7 +36,6 @@ import {
 } from '@/components/drawer-layout'
 import { MultiSelect } from '@/components/multi-select'
 import { Button } from '@/components/ui/button'
-import { Combobox } from '@/components/ui/combobox'
 import {
   Collapsible,
   CollapsibleContent,
@@ -71,13 +63,17 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { ModelMappingEditor } from '@/features/channels/components/model-mapping-editor'
-import { getPricing } from '@/features/pricing/api'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 
-import { createApiKey, updateApiKey, getApiKey } from '../api'
+import {
+  createApiKey,
+  updateApiKey,
+  getApiKey,
+  getTokenAutoGroups,
+} from '../api'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
   getApiKeyFormSchema,
@@ -88,11 +84,11 @@ import {
 } from '../lib'
 import type { ApiKey } from '../types'
 import {
-  GroupRatioBadge,
   ApiKeyGroupCombobox,
   type ApiKeyGroupOption,
 } from './api-key-group-combobox'
 import { useApiKeys } from './api-keys-provider'
+import { AutoGroupOrderEditor } from './auto-group-order-editor'
 
 type ApiKeyMutateDrawerProps = {
   open: boolean
@@ -107,17 +103,15 @@ export function ApiKeysMutateDrawer({
 }: ApiKeyMutateDrawerProps) {
   const { t } = useTranslation()
   const isUpdate = !!currentRow
+  const currentRowId = currentRow?.id
   const { triggerRefresh } = useApiKeys()
-  const { status } = useStatus()
+  const { status, loading: statusLoading } = useStatus()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [draggedAutoGroup, setDraggedAutoGroup] = useState<string | null>(null)
-  const [autoGroupError, setAutoGroupError] = useState('')
+  const [initializedTarget, setInitializedTarget] = useState<string | null>(
+    null
+  )
   const defaultUseAutoGroup = status?.default_use_auto_group === true
-  const userEditedOverrideRef = useRef(false)
-  const prevModeRef = useRef<string>('')
-  const [autoGroupsOverrideEdited, setAutoGroupsOverrideEdited] =
-    useState(false)
 
   // Fetch models
   const { data: modelsData } = useQuery({
@@ -128,35 +122,77 @@ export function ApiKeysMutateDrawer({
   })
 
   // Fetch groups
-  const { data: groupsData } = useQuery({
+  const {
+    data: groupsData,
+    isFetched: groupsFetched,
+    isFetching: groupsFetching,
+  } = useQuery({
     queryKey: ['user-groups'],
     queryFn: getUserGroups,
     enabled: open,
     staleTime: 0,
   })
 
-  const { data: pricingData } = useQuery({
-    queryKey: ['pricing-auto-groups'],
-    queryFn: getPricing,
-    staleTime: 5 * 60 * 1000,
+  const {
+    data: apiKeyData,
+    isFetched: apiKeyFetched,
+    isFetching: apiKeyFetching,
+  } = useQuery({
+    queryKey: ['api-key', currentRowId],
+    queryFn: () => getApiKey(currentRowId ?? 0),
+    enabled: open && isUpdate && currentRowId !== undefined,
+    staleTime: 0,
+  })
+
+  const {
+    data: autoGroupsData,
+    isFetched: autoGroupsFetched,
+    isFetching: autoGroupsFetching,
+  } = useQuery({
+    queryKey: ['token-auto-groups'],
+    queryFn: getTokenAutoGroups,
+    enabled: open,
+    staleTime: 0,
   })
 
   const models = modelsData?.data || []
-  const groupsRaw = groupsData?.data || {}
-  const groups: ApiKeyGroupOption[] = Object.entries(groupsRaw).map(
-    ([key, info]) => ({
-      value: key,
-      label: key,
-      desc: info.desc || key,
-      ratio: info.ratio,
-    })
+  const groups = useMemo<ApiKeyGroupOption[]>(
+    () =>
+      Object.entries(groupsData?.data || {}).map(([key, info]) => ({
+        value: key,
+        label: key,
+        desc: info.desc || key,
+        ratio: info.ratio,
+      })),
+    [groupsData]
   )
   const backendHasAuto = groups.some((g) => g.value === 'auto')
-  const pricingAutoGroups = useMemo(
-    () => (pricingData?.auto_groups || []).filter(Boolean),
-    [pricingData?.auto_groups]
+  const availableAutoGroupNames = useMemo(
+    () => groups.filter((group) => group.value !== 'auto').map((g) => g.value),
+    [groups]
   )
-  const schema = getApiKeyFormSchema(t)
+  const globalAutoGroups = useMemo(() => {
+    const available = new Set(availableAutoGroupNames)
+    return (autoGroupsData?.data?.groups || []).filter((group) =>
+      available.has(group)
+    )
+  }, [autoGroupsData, availableAutoGroupNames])
+  const globalAutoGroupOptions = useMemo(() => {
+    const groupsByValue = new Map(groups.map((group) => [group.value, group]))
+    return globalAutoGroups.flatMap((group) => {
+      const option = groupsByValue.get(group)
+      return option ? [option] : []
+    })
+  }, [globalAutoGroups, groups])
+  const maxAutoGroups =
+    Number.isInteger(autoGroupsData?.data?.max_count) &&
+    Number(autoGroupsData?.data?.max_count) > 0
+      ? Number(autoGroupsData?.data?.max_count)
+      : 5
+  const schema = useMemo(
+    () => getApiKeyFormSchema(t, maxAutoGroups),
+    [t, maxAutoGroups]
+  )
 
   const form = useForm<ApiKeyFormValues>({
     resolver: zodResolver(schema),
@@ -165,28 +201,39 @@ export function ApiKeysMutateDrawer({
 
   // Load existing data when updating
   useEffect(() => {
-    if (open && isUpdate && currentRow) {
-      void getApiKey(currentRow.id)
-        .then((result) => {
-          if (result.success && result.data) {
-            setAutoGroupsOverrideEdited(
-              result.data.auto_groups_override?.length > 0
-            )
-            userEditedOverrideRef.current = false
-            form.reset(
-              transformApiKeyToFormDefaults(result.data, pricingAutoGroups)
-            )
-          }
-        })
-        .catch(() => {
-          toast.error(t(ERROR_MESSAGES.UNEXPECTED))
-        })
-    } else if (open && !isUpdate) {
-      userEditedOverrideRef.current = false
-      prevModeRef.current = ''
+    if (!open) {
+      setInitializedTarget(null)
+      return
+    }
+    if (
+      !groupsFetched ||
+      groupsFetching ||
+      !autoGroupsFetched ||
+      autoGroupsFetching
+    ) {
+      return
+    }
+    if (isUpdate && (!apiKeyFetched || apiKeyFetching)) return
+    if (!isUpdate && statusLoading) return
+
+    const target = isUpdate && currentRow ? `update:${currentRow.id}` : 'create'
+    if (initializedTarget === target) return
+    if (isUpdate && currentRow) {
+      if (apiKeyData?.success && apiKeyData.data) {
+        form.reset(
+          transformApiKeyToFormDefaults(
+            apiKeyData.data,
+            availableAutoGroupNames,
+            maxAutoGroups
+          )
+        )
+        setInitializedTarget(target)
+      }
+    } else {
       form.reset(
         getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto)
       )
+      setInitializedTarget(target)
     }
   }, [
     open,
@@ -194,104 +241,29 @@ export function ApiKeysMutateDrawer({
     currentRow,
     form,
     defaultUseAutoGroup,
+    statusLoading,
     backendHasAuto,
-    pricingAutoGroups,
-    t,
+    groupsFetched,
+    groupsFetching,
+    autoGroupsFetched,
+    autoGroupsFetching,
+    apiKeyData,
+    apiKeyFetched,
+    apiKeyFetching,
+    availableAutoGroupNames,
+    maxAutoGroups,
+    initializedTarget,
   ])
 
-  useEffect(() => {
-    if (!open) return
-    const group = form.watch('group')
-    if (prevModeRef.current !== 'auto' && group === 'auto') {
-      const current = form.getValues('auto_groups_override') || []
-      const hasCurrent = current.length > 0
-      if (
-        !userEditedOverrideRef.current &&
-        !hasCurrent &&
-        pricingAutoGroups.length > 0
-      ) {
-        setAutoGroupError('')
-        form.setValue('auto_groups_override', pricingAutoGroups, {
-          shouldDirty: true,
-          shouldValidate: true,
-        })
-      }
-    }
-    prevModeRef.current = group || ''
-  }, [open, form, pricingAutoGroups])
-
-  const availableOverrideGroups = groups.filter((g) => g.value !== 'auto')
-  const availableOverrideGroupNames = new Set(
-    availableOverrideGroups.map((g) => g.value)
-  )
-
-  const autoGroupsOverride = form.watch('auto_groups_override') || []
-
-  const appendAutoGroup = (value: string) => {
-    const next = value.trim()
-    if (!next) {
-      setAutoGroupError(t('Please select a group'))
-      return
-    }
-    if (!availableOverrideGroupNames.has(next)) {
-      setAutoGroupError(t('Invalid group in auto groups override'))
-      return
-    }
-    if (autoGroupsOverride.includes(next)) {
-      setAutoGroupError(t('Group already exists in auto groups override'))
-      return
-    }
-    userEditedOverrideRef.current = true
-    setAutoGroupError('')
-    form.clearErrors('auto_groups_override')
-    form.setValue('auto_groups_override', [...autoGroupsOverride, next], {
-      shouldDirty: true,
-      shouldValidate: true,
-    })
-    setAutoGroupsOverrideEdited(true)
-  }
-
-  const deleteAutoGroup = (index: number) => {
-    userEditedOverrideRef.current = true
-    setAutoGroupError('')
-    form.clearErrors('auto_groups_override')
-    form.setValue(
-      'auto_groups_override',
-      autoGroupsOverride.filter((_, i) => i !== index),
-      {
-        shouldDirty: true,
-        shouldValidate: true,
-      }
-    )
-    setAutoGroupsOverrideEdited(true)
-  }
-
-  const handleAutoGroupDrop = (targetValue: string) => {
-    if (!draggedAutoGroup || draggedAutoGroup === targetValue) {
-      return
-    }
-    const sourceIndex = autoGroupsOverride.indexOf(draggedAutoGroup)
-    const targetIndex = autoGroupsOverride.indexOf(targetValue)
-    if (sourceIndex === -1 || targetIndex === -1) {
-      return
-    }
-    const reordered = [...autoGroupsOverride]
-    const [moved] = reordered.splice(sourceIndex, 1)
-    reordered.splice(targetIndex, 0, moved)
-    userEditedOverrideRef.current = true
-    setAutoGroupError('')
-    form.clearErrors('auto_groups_override')
-    form.setValue('auto_groups_override', reordered, {
-      shouldDirty: true,
-      shouldValidate: true,
-    })
-    setAutoGroupsOverrideEdited(true)
-  }
+  const formTarget =
+    isUpdate && currentRow ? `update:${currentRow.id}` : 'create'
+  const isFormInitialized = initializedTarget === formTarget
+  const selectedGroup = form.watch('group')
 
   // Correct group after groups load: if the form value is not in available groups, fall back
   useEffect(() => {
     if (groups.length === 0) return
-    const currentGroup = form.getValues('group')
+    const currentGroup = selectedGroup
     if (currentGroup && !groups.some((g) => g.value === currentGroup)) {
       const fallback =
         groups.find((g) => g.value === 'default')?.value ??
@@ -299,41 +271,17 @@ export function ApiKeysMutateDrawer({
         ''
       form.setValue('group', fallback)
       if (currentGroup === 'auto') {
-        form.setValue('cross_group_retry', true)
+        form.setValue('auto_groups', [])
+        form.setValue('auto_groups_mode', 'inherit')
+        form.setValue('cross_group_retry', false)
       }
     }
-  }, [groups, form])
+  }, [groups, form, selectedGroup])
 
   const onSubmit = async (data: ApiKeyFormValues) => {
     setIsSubmitting(true)
     try {
       const basePayload = transformFormDataToPayload(data)
-
-      if (data.group === 'auto') {
-        if (!autoGroupsOverrideEdited) basePayload.auto_groups_override = []
-        const normalized = (data.auto_groups_override || []).filter(Boolean)
-        const hasDuplicate = new Set(normalized).size !== normalized.length
-        const hasInvalid = normalized.some(
-          (groupValue) =>
-            groupValue === 'auto' ||
-            !availableOverrideGroupNames.has(groupValue)
-        )
-        if (hasDuplicate || hasInvalid) {
-          form.setError('auto_groups_override', {
-            type: 'manual',
-            message: t(
-              'Auto groups override must be non-empty, unique, and only contain valid non-auto groups'
-            ),
-          })
-          setAutoGroupError(
-            t(
-              'Auto groups override must be non-empty, unique, and only contain valid non-auto groups'
-            )
-          )
-          setIsSubmitting(false)
-          return
-        }
-      }
 
       if (isUpdate && currentRow) {
         const result = await updateApiKey({
@@ -410,10 +358,8 @@ export function ApiKeysMutateDrawer({
   const quotaPlaceholder = tokensOnly
     ? t('Enter quota in tokens')
     : t('Enter quota in {{currency}}', { currency: currencyLabel })
-  const selectedGroup = form.watch('group')
+  const autoGroupsMode = form.watch('auto_groups_mode')
   const unlimitedQuota = form.watch('unlimited_quota')
-
-  const getGroup = (name: string) => groups.find((g) => g.value === name)
 
   return (
     <Sheet
@@ -442,6 +388,8 @@ export function ApiKeysMutateDrawer({
           <form
             id='api-key-form'
             onSubmit={form.handleSubmit(onSubmit, onInvalid)}
+            aria-busy={!isFormInitialized}
+            inert={!isFormInitialized || isSubmitting ? true : undefined}
             className={sideDrawerFormClassName('gap-5')}
           >
             <SideDrawerSection>
@@ -475,7 +423,18 @@ export function ApiKeysMutateDrawer({
                       <ApiKeyGroupCombobox
                         options={groups}
                         value={field.value}
-                        onValueChange={field.onChange}
+                        onValueChange={(group) => {
+                          field.onChange(group)
+                          if (group === 'auto') {
+                            form.setValue('cross_group_retry', true, {
+                              shouldDirty: true,
+                            })
+                            return
+                          }
+                          form.setValue('cross_group_retry', false, {
+                            shouldDirty: true,
+                          })
+                        }}
                         placeholder={t('Select a group')}
                       />
                     </FormControl>
@@ -485,135 +444,68 @@ export function ApiKeysMutateDrawer({
               />
 
               {selectedGroup === 'auto' && (
-                <>
-                  <FormField
-                    control={form.control}
-                    name='auto_groups_override'
-                    render={({ field }) => {
-                      const options = availableOverrideGroups
-                        .filter((g) => !autoGroupsOverride.includes(g.value))
-                        .map((g) => ({
-                          value: g.value,
-                          label: (
-                            <div className='my-2'>
-                              <div className='flex'>
-                                <GroupRatioBadge ratio={g.ratio} />
-                                <div className='ml-2'>{g.value}</div>
-                              </div>
-                              <span className='text-muted-foreground mt-1 block truncate text-[11px] sm:text-xs'>
-                                {g.desc}
-                              </span>
-                            </div>
-                          ),
-                        }))
+                <FormField
+                  control={form.control}
+                  name='auto_groups'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Auto group order')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Choose and order the groups this API key will try.'
+                        )}
+                      </FormDescription>
+                      <FormControl>
+                        <AutoGroupOrderEditor
+                          value={field.value}
+                          mode={autoGroupsMode}
+                          options={groups}
+                          globalOptions={globalAutoGroupOptions}
+                          maxCount={maxAutoGroups}
+                          onChange={(value) => {
+                            form.setValue('auto_groups_mode', value.mode, {
+                              shouldDirty: true,
+                              shouldValidate: false,
+                            })
+                            form.setValue(
+                              'auto_groups',
+                              value.groups.slice(0, maxAutoGroups),
+                              {
+                                shouldDirty: true,
+                                shouldValidate: true,
+                              }
+                            )
+                          }}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
-                      return (
-                        <FormItem>
-                          <div className='mb-2'>
-                            <FormLabel>{t('Auto groups override')}</FormLabel>
-                            <FormDescription>
-                              {t(
-                                'Configure ordered fallback groups for this key when using auto mode.'
-                              )}
-                            </FormDescription>
-                          </div>
-                          <FormControl>
-                            <Combobox
-                              options={options}
-                              value=''
-                              onValueChange={(value) => {
-                                if (!value) return
-                                appendAutoGroup(value)
-                              }}
-                              placeholder={t('Select a group')}
-                              searchPlaceholder={t('Select a group')}
-                              emptyText={t('No available groups can be added')}
-                            />
-                          </FormControl>
-
-                          <ul className='mt-3 space-y-2'>
-                            {field.value?.map((groupValue, index) => {
-                              const group = getGroup(groupValue)
-                              return (
-                                <li
-                                  key={groupValue}
-                                  draggable={autoGroupsOverride.length > 1}
-                                  onDragStart={(
-                                    e: DragEvent<HTMLLIElement>
-                                  ) => {
-                                    e.dataTransfer.effectAllowed = 'move'
-                                    setDraggedAutoGroup(groupValue)
-                                  }}
-                                  onDragOver={(e: DragEvent<HTMLLIElement>) => {
-                                    e.preventDefault()
-                                    e.dataTransfer.dropEffect = 'move'
-                                  }}
-                                  onDrop={(e: DragEvent<HTMLLIElement>) => {
-                                    e.preventDefault()
-                                    handleAutoGroupDrop(groupValue)
-                                    setDraggedAutoGroup(null)
-                                  }}
-                                  onDragEnd={() => setDraggedAutoGroup(null)}
-                                  className='bg-muted/40 flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left'
-                                >
-                                  <div className='flex items-center gap-2'>
-                                    <GripVertical className='text-muted-foreground size-4' />
-                                    <GroupRatioBadge
-                                      ratio={group?.ratio || 0}
-                                    />
-                                    <span className='text-sm'>
-                                      {groupValue}
-                                    </span>
-                                  </div>
-                                  <Button
-                                    type='button'
-                                    size='icon'
-                                    variant='ghost'
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    onClick={() => deleteAutoGroup(index)}
-                                  >
-                                    <Trash2 className='size-4' />
-                                  </Button>
-                                </li>
-                              )
-                            })}
-                          </ul>
-                          <FormMessage />
-                          {autoGroupError ? (
-                            <p className='text-destructive mt-2 text-xs'>
-                              {autoGroupError}
-                            </p>
-                          ) : null}
-                        </FormItem>
-                      )
-                    }}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name='cross_group_retry'
-                    render={({ field }) => (
-                      <FormItem className={sideDrawerSwitchItemClassName()}>
-                        <div className='flex flex-col gap-0.5'>
-                          <FormLabel className='text-sm'>
-                            {t('Cross-group retry')}
-                          </FormLabel>
-                          <FormDescription className='line-clamp-2 text-xs sm:line-clamp-none'>
-                            {t(
-                              'When enabled, if channels in the current group fail, it will try channels in the next group in order.'
-                            )}
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={!!field.value}
-                            onCheckedChange={field.onChange}
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                </>
+              {selectedGroup === 'auto' && (
+                <FormField
+                  control={form.control}
+                  name='cross_group_retry'
+                  render={() => (
+                    <FormItem className={sideDrawerSwitchItemClassName()}>
+                      <div className='flex flex-col gap-0.5'>
+                        <FormLabel className='text-sm'>
+                          {t('Cross-group retry')}
+                        </FormLabel>
+                        <FormDescription className='line-clamp-2 text-xs sm:line-clamp-none'>
+                          {t(
+                            'When enabled, if channels in the current group fail, it will try channels in the next group in order.'
+                          )}
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch checked disabled />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
               )}
 
               <FormField
@@ -884,7 +776,7 @@ export function ApiKeysMutateDrawer({
           <Button
             type='button'
             onClick={form.handleSubmit(onSubmit, onInvalid)}
-            disabled={isSubmitting}
+            disabled={!isFormInitialized || isSubmitting}
             className='w-full sm:w-auto'
           >
             {isSubmitting ? t('Saving...') : t('Save changes')}

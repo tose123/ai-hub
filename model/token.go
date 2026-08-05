@@ -1,7 +1,6 @@
 package model
 
 import (
-	"database/sql/driver"
 	"errors"
 	"fmt"
 	"strings"
@@ -12,144 +11,50 @@ import (
 	"gorm.io/gorm"
 )
 
-type TokenAutoGroups []string
-
-func NormalizeTokenAutoGroups(groups []string) []string {
-	if len(groups) == 0 {
-		return nil
-	}
-	normalized := make([]string, 0, len(groups))
-	seen := make(map[string]struct{}, len(groups))
-	for _, group := range groups {
-		group = strings.TrimSpace(group)
-		if group == "" {
-			continue
-		}
-		if _, ok := seen[group]; ok {
-			continue
-		}
-		seen[group] = struct{}{}
-		normalized = append(normalized, group)
-	}
-	if len(normalized) == 0 {
-		return nil
-	}
-	return normalized
+type Token struct {
+	Id                 int            `json:"id"`
+	UserId             int            `json:"user_id" gorm:"index"`
+	Key                string         `json:"key" gorm:"type:varchar(128);uniqueIndex"`
+	Status             int            `json:"status" gorm:"default:1"`
+	Name               string         `json:"name" gorm:"index" `
+	CreatedTime        int64          `json:"created_time" gorm:"bigint"`
+	AccessedTime       int64          `json:"accessed_time" gorm:"bigint"`
+	ExpiredTime        int64          `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
+	RemainQuota        int            `json:"remain_quota" gorm:"default:0"`
+	UnlimitedQuota     bool           `json:"unlimited_quota"`
+	ModelLimitsEnabled bool           `json:"model_limits_enabled"`
+	ModelLimits        string         `json:"model_limits" gorm:"type:text"`
+	ModelMapping       string         `json:"model_mapping" gorm:"type:text"`
+	AllowIps           *string        `json:"allow_ips" gorm:"default:''"`
+	UsedQuota          int            `json:"used_quota" gorm:"default:0"` // used quota
+	Group              string         `json:"group" gorm:"default:''"`
+	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
+	AutoGroups         string         `json:"-" gorm:"type:text"`
+	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
 
-func EncodeTokenAutoGroups(groups []string) (*string, error) {
-	if len(groups) == 0 {
-		return nil, nil
-	}
-	normalized := NormalizeTokenAutoGroups(groups)
-	data, err := common.Marshal(normalized)
-	if err != nil {
-		return nil, err
-	}
-	encoded := string(data)
-	return &encoded, nil
-}
-
-func DecodeTokenAutoGroups(raw string) ([]string, error) {
-	if strings.TrimSpace(raw) == "" {
+func (token *Token) GetAutoGroups() ([]string, error) {
+	if token.AutoGroups == "" {
 		return nil, nil
 	}
 	var groups []string
-	if err := common.UnmarshalJsonStr(raw, &groups); err != nil {
+	if err := common.UnmarshalJsonStr(token.AutoGroups, &groups); err != nil {
 		return nil, err
 	}
-	normalized := NormalizeTokenAutoGroups(groups)
-	return normalized, nil
+	return groups, nil
 }
 
-func NormalizeTokenAutoGroupsValue(value *TokenAutoGroups) (*TokenAutoGroups, error) {
-	if value == nil {
-		return nil, nil
-	}
-	normalized := NormalizeTokenAutoGroups(*value)
-	result := TokenAutoGroups(normalized)
-	return &result, nil
-}
-
-func (g TokenAutoGroups) Value() (driver.Value, error) {
-	encoded, err := EncodeTokenAutoGroups([]string(g))
-	if err != nil {
-		return nil, err
-	}
-	if encoded == nil {
-		return nil, nil
-	}
-	return *encoded, nil
-}
-
-func (g *TokenAutoGroups) Scan(value interface{}) error {
-	switch v := value.(type) {
-	case nil:
-		*g = nil
+func (token *Token) SetAutoGroups(groups []string) error {
+	if len(groups) == 0 {
+		token.AutoGroups = ""
 		return nil
-	case []byte:
-		groups, err := DecodeTokenAutoGroups(string(v))
-		if err != nil {
-			return err
-		}
-		*g = TokenAutoGroups(groups)
-		return nil
-	case string:
-		groups, err := DecodeTokenAutoGroups(v)
-		if err != nil {
-			return err
-		}
-		*g = TokenAutoGroups(groups)
-		return nil
-	default:
-		return fmt.Errorf("unsupported token auto groups type: %T", value)
 	}
-}
-
-type Token struct {
-	Id                 int              `json:"id"`
-	UserId             int              `json:"user_id" gorm:"index"`
-	Key                string           `json:"key" gorm:"type:varchar(128);uniqueIndex"`
-	Status             int              `json:"status" gorm:"default:1"`
-	Name               string           `json:"name" gorm:"index" `
-	CreatedTime        int64            `json:"created_time" gorm:"bigint"`
-	AccessedTime       int64            `json:"accessed_time" gorm:"bigint"`
-	ExpiredTime        int64            `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
-	RemainQuota        int              `json:"remain_quota" gorm:"default:0"`
-	UnlimitedQuota     bool             `json:"unlimited_quota"`
-	ModelLimitsEnabled bool             `json:"model_limits_enabled"`
-	ModelLimits        string           `json:"model_limits" gorm:"type:text"`
-	ModelMapping       string           `json:"model_mapping" gorm:"type:text"`
-	AllowIps           *string          `json:"allow_ips" gorm:"default:''"`
-	UsedQuota          int              `json:"used_quota" gorm:"default:0"` // used quota
-	Group              string           `json:"group" gorm:"default:''"`
-	CrossGroupRetry    bool             `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
-	AutoGroupsOverride *TokenAutoGroups `json:"auto_groups_override,omitempty" gorm:"type:text"`
-	DeletedAt          gorm.DeletedAt   `gorm:"index"`
-}
-
-func (token *Token) normalizeAutoGroupsOverride() error {
-	normalized, err := NormalizeTokenAutoGroupsValue(token.AutoGroupsOverride)
+	data, err := common.Marshal(groups)
 	if err != nil {
 		return err
 	}
-	token.AutoGroupsOverride = normalized
+	token.AutoGroups = string(data)
 	return nil
-}
-
-func (token *Token) BeforeCreate(tx *gorm.DB) error {
-	return token.normalizeAutoGroupsOverride()
-}
-
-func (token *Token) BeforeUpdate(tx *gorm.DB) error {
-	return token.normalizeAutoGroupsOverride()
-}
-
-func (token *Token) GetAutoGroupsOverride() []string {
-	if token.AutoGroupsOverride == nil {
-		return nil
-	}
-	return NormalizeTokenAutoGroups([]string(*token.AutoGroupsOverride))
 }
 
 func (token *Token) Clean() {
@@ -412,18 +317,16 @@ func (token *Token) Insert() error {
 
 // Update Make sure your token's fields is completed, because this will update non-zero values
 func (token *Token) Update() (err error) {
-	defer func() {
-		if shouldUpdateRedis(true, err) {
-			gopool.Go(func() {
-				err := cacheSetToken(*token)
-				if err != nil {
-					common.SysLog("failed to update token cache: " + err.Error())
-				}
-			})
-		}
-	}()
 	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "model_mapping", "allow_ips", "group", "cross_group_retry", "auto_groups_override").Updates(token).Error
+		"model_limits_enabled", "model_limits", "model_mapping", "allow_ips", "group", "cross_group_retry", "auto_groups").Updates(token).Error
+	if shouldUpdateRedis(true, err) {
+		if cacheErr := cacheSetToken(*token); cacheErr != nil {
+			common.SysLog("failed to update token cache: " + cacheErr.Error())
+			if deleteErr := cacheDeleteToken(token.Key); deleteErr != nil {
+				common.SysLog("failed to invalidate token cache after update: " + deleteErr.Error())
+			}
+		}
+	}
 	return err
 }
 

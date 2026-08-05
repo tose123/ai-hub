@@ -155,6 +155,22 @@ func withGlobalModelMapping(t *testing.T, mapping map[string]string) {
 	})
 }
 
+func prepareModelMappingTest(t *testing.T, ctx *gin.Context, modelNames ...string) {
+	t.Helper()
+	db := setupModelListControllerTestDB(t)
+	abilities := make([]model.Ability, 0, len(modelNames))
+	for i, modelName := range modelNames {
+		abilities = append(abilities, model.Ability{
+			Group:     "default",
+			Model:     modelName,
+			ChannelId: i + 1,
+			Enabled:   true,
+		})
+	}
+	require.NoError(t, db.Create(&abilities).Error)
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+}
+
 func decodeListModelsPayload(t *testing.T, recorder *httptest.ResponseRecorder) listModelsResponse {
 	t.Helper()
 
@@ -243,20 +259,20 @@ func seedModelListAutoGroupData(t *testing.T, db *gorm.DB) {
 
 func newAutoToken(groups []string) *model.Token {
 	token := &model.Token{
-		UserId:         2001,
-		Name:           "auto-token",
-		Key:            "sk-auto-token",
-		Status:         common.TokenStatusEnabled,
-		CreatedTime:    1,
-		AccessedTime:   1,
-		ExpiredTime:    -1,
-		RemainQuota:    100,
-		UnlimitedQuota: true,
-		Group:          "auto",
+		UserId:          2001,
+		Name:            "auto-token",
+		Key:             "sk-auto-token",
+		Status:          common.TokenStatusEnabled,
+		CreatedTime:     1,
+		AccessedTime:    1,
+		ExpiredTime:     -1,
+		RemainQuota:     100,
+		UnlimitedQuota:  true,
+		Group:           "auto",
+		CrossGroupRetry: true,
 	}
 	if len(groups) > 0 {
-		normalized := model.TokenAutoGroups(groups)
-		token.AutoGroupsOverride = &normalized
+		_ = token.SetAutoGroups(groups)
 	}
 	return token
 }
@@ -448,7 +464,13 @@ func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 		"zz-token-tiered-visible-model":    `tier("base", p * 1 + c * 2)`,
 		"zz-token-tiered-empty-expr-model": "",
 	})
-	setupModelListControllerTestDB(t)
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "zz-token-tiered-visible-model", ChannelId: 1, Enabled: true},
+		{Group: "default", Model: "zz-token-tiered-empty-expr-model", ChannelId: 1, Enabled: true},
+		{Group: "default", Model: "zz-token-tiered-missing-expr-model", ChannelId: 1, Enabled: true},
+		{Group: "default", Model: "zz-token-unpriced-model", ChannelId: 1, Enabled: true},
+	}).Error)
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -469,6 +491,68 @@ func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 	require.NotContains(t, ids, "zz-token-tiered-empty-expr-model")
 	require.NotContains(t, ids, "zz-token-tiered-missing-expr-model")
 	require.NotContains(t, ids, "zz-token-unpriced-model")
+}
+
+func TestListModelsTokenLimitUsesResolvedCustomAutoGroups(t *testing.T) {
+	withSelfUseModeEnabled(t)
+	originalMax := setting.GetMaxTokenAutoGroups()
+	originalUsableGroups := setting.UserUsableGroups2JSONString()
+	originalRatios := ratio_setting.GroupRatio2JSONString()
+	require.NoError(t, setting.UpdateMaxTokenAutoGroups("5"))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1}`))
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateMaxTokenAutoGroups(fmt.Sprintf("%d", originalMax)))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
+	})
+
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "vip", Model: "zz-vip-allowed", ChannelId: 1, Enabled: true},
+		{Group: "vip", Model: "zz-vip-denied", ChannelId: 1, Enabled: true},
+		{Group: "default", Model: "zz-default-outside-snapshot", ChannelId: 1, Enabled: true},
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenGroup, "auto")
+	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{"vip"})
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
+		"zz-vip-allowed":              true,
+		"zz-default-outside-snapshot": true,
+		"zz-not-enabled":              true,
+	})
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+	ids := decodeListModelsResponse(t, recorder)
+	require.Equal(t, map[string]struct{}{"zz-vip-allowed": {}}, ids)
+
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+	emptyRecorder := httptest.NewRecorder()
+	emptyCtx, _ := gin.CreateTestContext(emptyRecorder)
+	emptyCtx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(emptyCtx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(emptyCtx, constant.ContextKeyTokenGroup, "auto")
+	common.SetContextKey(emptyCtx, constant.ContextKeyTokenAutoGroups, []string{"vip"})
+	common.SetContextKey(emptyCtx, constant.ContextKeyTokenModelLimitEnabled, true)
+	common.SetContextKey(emptyCtx, constant.ContextKeyTokenModelLimit, map[string]bool{"zz-vip-allowed": true})
+
+	require.NotPanics(t, func() {
+		ListModels(emptyCtx, constant.ChannelTypeAnthropic)
+	})
+	var anthropicResponse struct {
+		Data    []dto.AnthropicModel `json:"data"`
+		FirstID string               `json:"first_id"`
+		LastID  string               `json:"last_id"`
+	}
+	require.NoError(t, common.Unmarshal(emptyRecorder.Body.Bytes(), &anthropicResponse))
+	require.Empty(t, anthropicResponse.Data)
+	require.Empty(t, anthropicResponse.FirstID)
+	require.Empty(t, anthropicResponse.LastID)
 }
 
 func TestListModelsAutoTokenFallsBackToSystemAutoGroups(t *testing.T) {
@@ -494,7 +578,7 @@ func TestListModelsAutoTokenFallsBackToSystemAutoGroups(t *testing.T) {
 	require.Contains(t, ids, "zz-token-tiered-visible-model")
 }
 
-func TestListModelsAutoTokenUsesOverrideOrderScope(t *testing.T) {
+func TestListModelsAutoTokenUsesCustomOrderScope(t *testing.T) {
 	withSelfUseModeDisabled(t)
 	withTieredAutoGroupPricing(t)
 	withAutoGroups(t, []string{"default", "vip"})
@@ -528,6 +612,7 @@ func TestListModelsIncludesTokenModelMappingAlias(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	prepareModelMappingTest(t, ctx, "gpt-4o-mini")
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
 		"gpt-4o-mini": true,
@@ -551,6 +636,7 @@ func TestListModelsIncludesNormalizedGlobalAliasOnce(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	prepareModelMappingTest(t, ctx, "claude-opus-4-7")
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
 		"claude-opus-4-7": true,
@@ -582,6 +668,7 @@ func TestListModelsDeduplicatesTokenModelMappingAlias(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	prepareModelMappingTest(t, ctx, "gpt-4o-mini")
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
 		"gpt-4o-mini": true,
@@ -609,6 +696,7 @@ func TestRetrieveModelSupportsTokenModelMappingAlias(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Params = gin.Params{{Key: "model", Value: "my-gpt"}}
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models/my-gpt", nil)
+	prepareModelMappingTest(t, ctx, "gpt-4o-mini")
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
 		"gpt-4o-mini": true,
@@ -632,6 +720,7 @@ func TestRetrieveModelSupportsGlobalModelMappingAlias(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Params = gin.Params{{Key: "model", Value: "my-opus"}}
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models/my-opus", nil)
+	prepareModelMappingTest(t, ctx, "claude-opus-4-7")
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
 		"claude-opus-4-7": true,
@@ -666,6 +755,7 @@ func TestListModelsReturnsBadRequestWhenTokenModelMappingInvalid(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	prepareModelMappingTest(t, ctx, "claude-opus-4-7")
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
 		"gpt-4o-mini": true,
@@ -692,6 +782,7 @@ func TestListModelsNormalizesMappedTargetBeforeVisibilityCheck(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	prepareModelMappingTest(t, ctx, "claude-opus-4-7")
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
 		"claude-opus-4-7": true,
@@ -710,6 +801,7 @@ func TestRetrieveModelNormalizesMappedTargetBeforeVisibilityCheck(t *testing.T) 
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Params = gin.Params{{Key: "model", Value: "my-opus"}}
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models/my-opus", nil)
+	prepareModelMappingTest(t, ctx, "claude-opus-4-7")
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
 	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{
 		"claude-opus-4-7": true,
@@ -723,4 +815,80 @@ func TestRetrieveModelNormalizesMappedTargetBeforeVisibilityCheck(t *testing.T) 
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
 	require.Equal(t, "my-opus", payload.Id)
 	require.Equal(t, model.GetModelSupportEndpointTypes("claude-opus-4-7"), payload.SupportedEndpointTypes)
+}
+
+func TestCheckUpdatePasswordRequiresCurrentPassword(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	hashedPassword, err := common.Password2Hash("CurrentPassword123")
+	require.NoError(t, err)
+	user := &model.User{
+		Username: "password-user",
+		Password: hashedPassword,
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, db.Create(user).Error)
+
+	updatePassword, err := checkUpdatePassword("", "", user.Id)
+	require.NoError(t, err)
+	assert.False(t, updatePassword)
+
+	updatePassword, err = checkUpdatePassword("", "NewPassword123", user.Id)
+	require.Error(t, err)
+	assert.False(t, updatePassword)
+	assert.ErrorIs(t, err, errOriginalPasswordFail)
+
+	updatePassword, err = checkUpdatePassword("CurrentPassword123", "NewPassword123", user.Id)
+	require.NoError(t, err)
+	assert.True(t, updatePassword)
+}
+
+func TestCheckUpdatePasswordRejectsHistoricalEmptyPassword(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	user := &model.User{
+		Username: "legacy-passwordless-user",
+		Password: "",
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, db.Create(user).Error)
+
+	updatePassword, err := checkUpdatePassword("", "NewPassword123", user.Id)
+	require.Error(t, err)
+	assert.False(t, updatePassword)
+	assert.ErrorIs(t, err, errUserPasswordUnset)
+}
+
+func TestSetupLoginDoesNotTouchPasswordWhenPasswordFieldOmitted(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.UserSession{}))
+
+	hashedPassword, err := common.Password2Hash("CurrentPassword123")
+	require.NoError(t, err)
+	user := &model.User{
+		Username: "twofa-user",
+		Password: hashedPassword,
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+	}
+	require.NoError(t, db.Create(user).Error)
+
+	router := gin.New()
+	router.GET("/", func(c *gin.Context) {
+		setupLogin(&model.User{
+			Id:       user.Id,
+			Username: user.Username,
+			Role:     user.Role,
+			Status:   user.Status,
+			Group:    user.Group,
+		}, c)
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var stored model.User
+	require.NoError(t, db.First(&stored, user.Id).Error)
+	assert.Equal(t, hashedPassword, stored.Password)
 }
