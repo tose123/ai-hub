@@ -18,7 +18,7 @@ defaults:
 bootstrap:
   state: complete
   source_merge_base: 1db6ae19576d7019fec38cc63a3b94ce609c92c9
-  reviewed_local_head: a18c14be539aaac245131d63defe2fcdb6f26f0f
+  reviewed_local_head: 3ab981d706ffbd6fa6aa629245728b3d74f02685
 
 # 已审阅条目使用以下结构：
 # - id: anytools-shared-auth
@@ -71,11 +71,12 @@ features:
       - service/group.go
       - web/src/features/keys/**
       - web/src/features/playground/constants.ts
-    symbols: [TokenAutoGroups, NormalizeTokenAutoGroups, GetTokenAwareAutoGroups, CacheGetRandomSatisfiedChannel]
+    symbols: [TokenAutoGroups, GetRequestAutoGroups, FilterUserTokenAutoGroups, CacheGetRandomSatisfiedChannel]
     behavior:
-      - API Key 可保存有序的 `auto_groups_override`；空值回退系统自动分组，重复或无权分组被规范化/拒绝。
-      - "`auto` Key 默认启用跨分组重试；Playground 默认选择 `auto` 并启用同等行为。"
-      - 模型列表、渠道选择和亲和回退均使用令牌级自动分组顺序。
+      - API Key 仅以 `auto_groups` 保存有序自动分组；缺失、`null` 或空数组继承完整全局 Auto，切离 `auto` 时清空，校验与权限过滤采用上游契约。
+      - 新建或更新后的 `auto` Key 必须启用跨分组重试；旧数据不迁移。Playground 默认选择 `auto`，其临时 Token 同样强制跨分组重试。
+      - 模型列表使用解析后的令牌级顺序；渠道选择仍保留本地优先级、亲和回退、失败渠道排除及同组耗尽后跨组的契约。
+    review_note: 用户于 2026-08-05 确认采用上游 Auto Group 存储、校验、权限与 tiered billing 语义，同时保留本地渠道选择、模型映射及默认跨组重试行为。
     verification:
       - go test ./controller ./model ./middleware ./service
       - cd web && bun run typecheck && bun run build
