@@ -48,15 +48,8 @@ import {
 } from '../lib/utils'
 import type { LogCategory } from '../types'
 import { StreamTpsCell, TimingMetricsCell } from './timing-metrics-cell'
+import { getCommonLogRowClassName } from './usage-log-row-appearance'
 import { useUsageLogsContext } from './usage-logs-provider'
-
-const logTypeRowTint: Record<number, string> = {
-  [LOG_TYPE_ENUM.ERROR]:
-    'bg-rose-50/40 dark:bg-rose-950/20 border-rose-200/50 dark:border-rose-900/30',
-  [LOG_TYPE_ENUM.REFUND]:
-    'bg-blue-50/30 dark:bg-blue-950/15 border-blue-200/50 dark:border-blue-900/30',
-}
-const retryRowTint = 'border-border/60 bg-muted/50 text-muted-foreground'
 
 interface UsageLogsMobileListProps<TData> {
   table: Table<TData>
@@ -64,6 +57,7 @@ interface UsageLogsMobileListProps<TData> {
   emptyTitle?: string
   emptyDescription?: string
   logCategory: LogCategory
+  isAdmin: boolean
 }
 
 function UsageLogsMobileSkeleton() {
@@ -166,10 +160,7 @@ function MobileLogTimeStatus({
   const { t } = useTranslation()
   const timestamp = typeof createdAt === 'number' ? createdAt : undefined
   const logType = typeof type === 'number' ? type : undefined
-  const config = getLogTypeConfig(
-    logType ?? LOG_TYPE_ENUM.UNKNOWN,
-    shouldRetry
-  )
+  const config = getLogTypeConfig(logType ?? LOG_TYPE_ENUM.UNKNOWN, shouldRetry)
   const variant = config.color as StatusVariant
 
   return (
@@ -460,6 +451,7 @@ export function UsageLogsMobileList<TData>({
   emptyTitle,
   emptyDescription,
   logCategory,
+  isAdmin,
 }: UsageLogsMobileListProps<TData>) {
   const { t } = useTranslation()
 
@@ -497,18 +489,14 @@ export function UsageLogsMobileList<TData>({
           row.getVisibleCells().map((cell) => [cell.column.id, cell])
         )
 
-        const logType = (row.original as Record<string, unknown>).type as
-          | number
-          | undefined
-        const shouldRetry =
-          logCategory === 'common' &&
-          (row.original as Record<string, unknown>).should_retry === 1
-        let tintClass = ''
-        if (shouldRetry) {
-          tintClass = retryRowTint
-        } else if (logType != null) {
-          tintClass = logTypeRowTint[logType] ?? ''
-        }
+        const tintClass =
+          logCategory === 'common'
+            ? getCommonLogRowClassName(
+                row.original as UsageLog,
+                'mobile',
+                isAdmin
+              )
+            : ''
 
         return (
           <div

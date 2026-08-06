@@ -32,32 +32,18 @@ import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { cn } from '@/lib/utils'
 
-import {
-  DEFAULT_LOGS_DATA,
-  LOG_TYPE_ALL_VALUE,
-  LOG_TYPE_ENUM,
-} from '../constants'
+import { DEFAULT_LOGS_DATA, LOG_TYPE_ALL_VALUE } from '../constants'
+import type { UsageLog } from '../data/schema'
 import { useColumnsByCategory } from '../lib/columns'
-import { parseLogOther } from '../lib/format'
 import { fetchLogsByCategory } from '../lib/utils'
 import type { LogCategory } from '../types'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'
 import { TaskLogsFilterBar } from './task-logs-filter-bar'
+import { getCommonLogRowClassName } from './usage-log-row-appearance'
 import { UsageLogsMobileList } from './usage-logs-mobile-card'
 import { useLogsViewScope } from './usage-logs-provider'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
-
-const logTypeRowTint: Record<number, string> = {
-  [LOG_TYPE_ENUM.ERROR]: 'bg-rose-50/40 dark:bg-rose-950/20',
-  [LOG_TYPE_ENUM.REFUND]: 'bg-blue-50/30 dark:bg-blue-950/15',
-}
-const retryRowTint =
-  'bg-muted/50 text-muted-foreground hover:bg-muted/60'
-
-// Warning tint for logs where a quota conversion saturated (admin-only marker).
-// Takes precedence over the per-type tint since it flags a billing anomaly.
-const quotaSaturationRowTint = 'bg-amber-50/60 dark:bg-amber-950/25'
 
 function getColumnVisibilityStorageKey(
   logCategory: LogCategory,
@@ -67,7 +53,12 @@ function getColumnVisibilityStorageKey(
 }
 
 function deserializeLogTypeFilter(value: unknown): unknown[] {
-  const values = Array.isArray(value) ? value : value ? [value] : []
+  let values: unknown[] = []
+  if (Array.isArray(value)) {
+    values = value
+  } else if (value) {
+    values = [value]
+  }
   return values.filter((item) => String(item) !== LOG_TYPE_ALL_VALUE)
 }
 
@@ -201,6 +192,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
           table={table}
           isLoading={isLoadingData}
           logCategory={logCategory}
+          isAdmin={isAdmin}
         />
       }
       toolbar={
@@ -220,24 +212,9 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
         )
       }
       renderRow={(row) => {
-        const logType = (row.original as Record<string, unknown>).type as
-          | number
-          | undefined
-        const shouldRetry =
-          (row.original as Record<string, unknown>).should_retry === 1
-        let tintClass =
-          isCommon && logType != null ? (logTypeRowTint[logType] ?? '') : ''
-        if (isCommon && isAdmin && shouldRetry) {
-          tintClass = retryRowTint
-        }
-        if (isCommon && isAdmin) {
-          const other = parseLogOther(
-            ((row.original as Record<string, unknown>).other as string) ?? ''
-          )
-          if (other?.admin_info?.quota_saturation) {
-            tintClass = quotaSaturationRowTint
-          }
-        }
+        const tintClass = isCommon
+          ? getCommonLogRowClassName(row.original as UsageLog, 'table', isAdmin)
+          : ''
 
         return (
           <DataTableRow
