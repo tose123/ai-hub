@@ -102,13 +102,13 @@
   {},
   // 工具价格
   {
-    "image_generation": 600,
-    "image_generation_call": 600,
-    "file_search": 2.5,
-    "google_search": 14.2857142857,
+    "web_search": 14.2857142857,
+    "web_search:grok-4.5*": 14.2857142857,
+    "web_search_preview": 14.2857142857,
     "x_search": 14.2857142857,
-    "web_search": 7.1428571429,
-    "web_search:grok-4.5*": 7.1428571429,
-    "web_search_preview": 7.1428571429
+    "google_search": 14.2857142857,
+    "file_search": 14.2857142857,
+    "image_generation": 600,
+    "image_generation_call": 600
   }
 ]
