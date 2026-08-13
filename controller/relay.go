@@ -197,6 +197,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		Ctx:                c,
 		TokenGroup:         relayInfo.TokenGroup,
 		ModelName:          model_setting.BaseModelForMatching(relayInfo.OriginModelName),
+		RouteModelName:     relayInfo.OriginModelName,
 		RequestPath:        c.Request.URL.Path,
 		Retry:              common.GetPointer(0),
 		ExcludedChannelIDs: map[int]struct{}{},
@@ -614,10 +615,11 @@ func RelayTask(c *gin.Context) {
 	}()
 
 	retryParam := &service.RetryParam{
-		Ctx:        c,
-		TokenGroup: relayInfo.TokenGroup,
-		ModelName:  model_setting.BaseModelForMatching(relayInfo.OriginModelName),
-		Retry:      common.GetPointer(0),
+		Ctx:            c,
+		TokenGroup:     relayInfo.TokenGroup,
+		ModelName:      model_setting.BaseModelForMatching(relayInfo.OriginModelName),
+		RouteModelName: relayInfo.OriginModelName,
+		Retry:          common.GetPointer(0),
 	}
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {

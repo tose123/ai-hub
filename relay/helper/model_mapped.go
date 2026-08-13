@@ -1,7 +1,6 @@
 package helper
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,10 +8,8 @@ import (
 	corecommon "github.com/QuantumNous/new-api/common"
 	appconstant "github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/model_setting"
-	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -20,26 +17,19 @@ func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.
 	if info.ChannelMeta == nil {
 		info.ChannelMeta = &relaycommon.ChannelMeta{}
 	}
-
-	isResponsesCompact := info.RelayMode == relayconstant.RelayModeResponsesCompact
 	originModelName := info.OriginModelName
-	mappingModelName := originModelName
-	if isResponsesCompact && strings.HasSuffix(originModelName, ratio_setting.CompactModelSuffix) {
-		mappingModelName = strings.TrimSuffix(originModelName, ratio_setting.CompactModelSuffix)
-	}
-	modelNameWithoutCompact := mappingModelName
-	baseModelName := model_setting.BaseModelForMatching(mappingModelName)
+	baseModelName := model_setting.BaseModelForMatching(originModelName)
 	modelSuffix := ""
-	if strings.HasPrefix(mappingModelName, baseModelName) {
-		modelSuffix = strings.TrimPrefix(mappingModelName, baseModelName)
+	if strings.HasPrefix(originModelName, baseModelName) {
+		modelSuffix = strings.TrimPrefix(originModelName, baseModelName)
 	}
-	mappingModelName = baseModelName
+	mappingModelName := baseModelName
 
 	// map model name
 	modelMapping := c.GetString("model_mapping")
 	if modelMapping != "" && modelMapping != "{}" {
 		modelMap := make(map[string]string)
-		err := json.Unmarshal([]byte(modelMapping), &modelMap)
+		err := corecommon.UnmarshalJsonStr(modelMapping, &modelMap)
 		if err != nil {
 			return fmt.Errorf("unmarshal_model_mapping_failed")
 		}
@@ -77,14 +67,6 @@ func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.
 			}
 			info.UpstreamModelName = currentModel
 		}
-	}
-
-	if isResponsesCompact {
-		finalUpstreamModelName := modelNameWithoutCompact
-		if info.IsModelMapped && info.UpstreamModelName != "" {
-			finalUpstreamModelName = info.UpstreamModelName
-		}
-		info.UpstreamModelName = finalUpstreamModelName
 	}
 	if request != nil {
 		request.SetModelName(info.UpstreamModelName)

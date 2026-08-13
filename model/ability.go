@@ -84,13 +84,13 @@ func filterExcludedAbilities(abilities []Ability, excludedChannelIDs map[int]str
 	return filtered
 }
 
-func getCandidateAbilities(group string, model string, requestPath string, excludedChannelIDs map[int]struct{}) ([]Ability, error) {
+func getCandidateAbilities(group string, model string, routeModel string, requestPath string, excludedChannelIDs map[int]struct{}) ([]Ability, error) {
 	loadAndFilter := func(targetModel string) ([]Ability, error) {
 		abilities, err := loadEnabledAbilities(group, targetModel)
 		if err != nil {
 			return nil, err
 		}
-		abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, targetModel)
+		abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, routeModel)
 		return filterExcludedAbilities(abilities, excludedChannelIDs), nil
 	}
 
@@ -106,8 +106,8 @@ func getCandidateAbilities(group string, model string, requestPath string, exclu
 	return loadAndFilter(normalizedModel)
 }
 
-func GetChannelPriorityCount(group string, model string, requestPath string, excludedChannelIDs map[int]struct{}) (int, error) {
-	abilities, err := getCandidateAbilities(group, model, requestPath, excludedChannelIDs)
+func GetChannelPriorityCount(group string, model string, routeModel string, requestPath string, excludedChannelIDs map[int]struct{}) (int, error) {
+	abilities, err := getCandidateAbilities(group, model, routeModel, requestPath, excludedChannelIDs)
 	if err != nil {
 		return 0, err
 	}
@@ -122,16 +122,16 @@ func GetChannelPriorityCount(group string, model string, requestPath string, exc
 	return len(uniquePriorities), nil
 }
 
-func GetChannelCount(group string, model string, requestPath string, excludedChannelIDs map[int]struct{}) (int, error) {
-	abilities, err := getCandidateAbilities(group, model, requestPath, excludedChannelIDs)
+func GetChannelCount(group string, model string, routeModel string, requestPath string, excludedChannelIDs map[int]struct{}) (int, error) {
+	abilities, err := getCandidateAbilities(group, model, routeModel, requestPath, excludedChannelIDs)
 	if err != nil {
 		return 0, err
 	}
 	return len(abilities), nil
 }
 
-func GetChannel(group string, model string, retry int, requestPath string, excludedChannelIDs map[int]struct{}) (*Channel, error) {
-	abilities, err := getCandidateAbilities(group, model, requestPath, excludedChannelIDs)
+func GetChannel(group string, model string, routeModel string, retry int, requestPath string, excludedChannelIDs map[int]struct{}) (*Channel, error) {
+	abilities, err := getCandidateAbilities(group, model, routeModel, requestPath, excludedChannelIDs)
 	if err != nil {
 		return nil, err
 	}

@@ -16,7 +16,6 @@ func TestBaseModelForMatching(t *testing.T) {
 	}{
 		{name: "xhigh effort", model: "claude-opus-4-7-xhigh", want: "claude-opus-4-7"},
 		{name: "none effort", model: "gpt-5-none", want: "gpt-5"},
-		{name: "compact effort", model: "gpt-5-xhigh-openai-compact", want: "gpt-5-openai-compact"},
 		{name: "thinking budget", model: "gemini-2.5-flash-thinking-1024", want: "gemini-2.5-flash"},
 		{name: "preserved thinking model", model: "kimi-k2-thinking", want: "kimi-k2-thinking"},
 	}

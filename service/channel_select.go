@@ -14,12 +14,20 @@ type RetryParam struct {
 	Ctx                   *gin.Context
 	TokenGroup            string
 	ModelName             string
+	RouteModelName        string
 	RequestPath           string
 	Retry                 *int
 	ExcludedChannelIDs    map[int]struct{}
 	currentAutoGroup      string
 	currentAutoGroupLimit int
 	resetNextTry          bool
+}
+
+func (p *RetryParam) GetRouteModelName() string {
+	if p.RouteModelName != "" {
+		return p.RouteModelName
+	}
+	return p.ModelName
 }
 
 func (p *RetryParam) GetRetry() int {
@@ -86,7 +94,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			autoGroup := autoGroups[i]
 			selectGroup = autoGroup
 			if param.ExcludedChannelIDs == nil {
-				remainingCount, countErr := model.GetSatisfiedChannelCount(autoGroup, param.ModelName, param.RequestPath, nil)
+				remainingCount, countErr := model.GetSatisfiedChannelCount(autoGroup, param.ModelName, param.GetRouteModelName(), param.RequestPath, nil)
 				if countErr != nil {
 					return nil, selectGroup, countErr
 				}
@@ -94,7 +102,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 				if i > startGroupIndex {
 					priorityRetry = 0
 				}
-				priorityCount, priorityErr := model.GetSatisfiedChannelPriorityCount(autoGroup, param.ModelName, param.RequestPath, nil)
+				priorityCount, priorityErr := model.GetSatisfiedChannelPriorityCount(autoGroup, param.ModelName, param.GetRouteModelName(), param.RequestPath, nil)
 				if priorityErr != nil {
 					return nil, selectGroup, priorityErr
 				}
@@ -119,7 +127,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 				}
 				logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-				channel, err = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath, nil)
+				channel, err = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, param.GetRouteModelName(), priorityRetry, param.RequestPath, nil)
 				if err != nil {
 					return nil, selectGroup, err
 				}
@@ -153,11 +161,11 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 				groupRetry = 0
 			}
 
-			remainingCount, countErr := model.GetSatisfiedChannelCount(autoGroup, param.ModelName, param.RequestPath, param.ExcludedChannelIDs)
+			remainingCount, countErr := model.GetSatisfiedChannelCount(autoGroup, param.ModelName, param.GetRouteModelName(), param.RequestPath, param.ExcludedChannelIDs)
 			if countErr != nil {
 				return nil, selectGroup, countErr
 			}
-			priorityCount, priorityErr := model.GetSatisfiedChannelPriorityCount(autoGroup, param.ModelName, param.RequestPath, param.ExcludedChannelIDs)
+			priorityCount, priorityErr := model.GetSatisfiedChannelPriorityCount(autoGroup, param.ModelName, param.GetRouteModelName(), param.RequestPath, param.ExcludedChannelIDs)
 			if priorityErr != nil {
 				return nil, selectGroup, priorityErr
 			}
@@ -196,7 +204,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, groupRetry: %d, remainingPriorityCount: %d", autoGroup, groupRetry, priorityCount)
 
-			channel, err = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, groupRetry, param.RequestPath, param.ExcludedChannelIDs)
+			channel, err = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, param.GetRouteModelName(), groupRetry, param.RequestPath, param.ExcludedChannelIDs)
 			if err != nil {
 				return nil, selectGroup, err
 			}
@@ -231,7 +239,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			break
 		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath, param.ExcludedChannelIDs)
+		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRouteModelName(), param.GetRetry(), param.RequestPath, param.ExcludedChannelIDs)
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}

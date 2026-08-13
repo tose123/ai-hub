@@ -22,6 +22,7 @@ import {
   formatCurrencyFromUSD,
   formatQuotaWithCurrency,
   getCurrencyDisplay,
+  getCurrencyFractionDigits,
 } from './currency'
 
 // ============================================================================
@@ -104,16 +105,44 @@ export function parseQuotaFromDollars(amount: number): number {
  */
 export function quotaUnitsToDollars(units: number): number {
   const { config, meta } = getCurrencyDisplay()
+  return quotaUnitsToDisplayAmount(units, config.quotaPerUnit, meta)
+}
 
+function quotaUnitsToDisplayAmount(
+  units: number,
+  quotaPerUnit: number,
+  meta: ReturnType<typeof getCurrencyDisplay>['meta']
+): number {
   if (meta.kind === 'tokens') {
     return units
   }
 
-  const usdAmount = units / config.quotaPerUnit
-  const exchangeRate =
-    meta.kind === 'currency' || meta.kind === 'custom' ? meta.exchangeRate : 1
+  return (units / quotaPerUnit) * meta.exchangeRate
+}
 
-  return usdAmount * exchangeRate
+/**
+ * Convert quota units to a plain number suitable for an editable input.
+ * Uses the same precision as quota list formatting without symbols or suffixes.
+ */
+export function quotaUnitsToEditableAmount(units: number): number {
+  const { config, meta } = getCurrencyDisplay()
+  const amount = quotaUnitsToDisplayAmount(units, config.quotaPerUnit, meta)
+
+  if (meta.kind === 'tokens') {
+    return Math.round(amount)
+  }
+
+  return Number(amount.toFixed(getCurrencyFractionDigits(amount)))
+}
+
+/** Return the input step matching the configured editable quota precision. */
+export function getEditableQuotaStep(): number {
+  const { meta } = getCurrencyDisplay()
+  if (meta.kind === 'tokens') {
+    return 1
+  }
+
+  return 10 ** -getCurrencyFractionDigits(0)
 }
 
 // ============================================================================
@@ -208,9 +237,15 @@ export function formatTimeStr(date: Date): string {
 export function formatLogQuota(quota: number): string {
   if (quota == null || Number.isNaN(quota)) return '-'
   const cny = (quota * 7) / 500000
+  let digitsSmall = 3
+  if (cny < 0.001) {
+    digitsSmall = 5
+  } else if (cny < 0.01) {
+    digitsSmall = 4
+  }
   return formatQuotaWithCurrency(quota, {
     digitsLarge: cny >= 10 ? 2 : 3,
-    digitsSmall: cny < 0.001 ? 5 : cny < 0.01 ? 4 : 3,
+    digitsSmall,
     abbreviate: false,
   })
 }

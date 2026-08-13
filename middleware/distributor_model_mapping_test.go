@@ -9,7 +9,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/setting/model_setting"
-	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -88,7 +87,7 @@ func TestApplyModelMappingFollowsChain(t *testing.T) {
 	require.True(t, mapped)
 }
 
-func TestGetModelRequestPreservesCompactClientModel(t *testing.T) {
+func TestGetModelRequestUsesBaseModelIdentityForCompactEndpoint(t *testing.T) {
 	settings := model_setting.GetGlobalSettings()
 	originalMapping := settings.ModelMapping
 	settings.ModelMapping = map[string]string{"model-a": "model-b"}
@@ -108,10 +107,11 @@ func TestGetModelRequestPreservesCompactClientModel(t *testing.T) {
 	routedModel, _, mapped, err := resolveRoutedModel(ctx, request.Model)
 	require.NoError(t, err)
 	require.True(t, mapped)
-	require.Equal(t, "model-b", strings.TrimSuffix(routedModel, ratio_setting.CompactModelSuffix))
+	require.Equal(t, "model-b", routedModel)
 
-	routedModel, baseModel, mapped, err := resolveRoutedModel(ctx, ratio_setting.WithCompactModelSuffix("gpt-5.5-xhigh"))
+	routedModel, baseModel, mapped, err := resolveRoutedModel(ctx, "gpt-5.5-xhigh")
 	require.NoError(t, err)
 	require.True(t, mapped)
-	require.Equal(t, "gpt-5.5", strings.TrimSuffix(baseModel, ratio_setting.CompactModelSuffix))
+	require.Equal(t, "gpt-5.5-xhigh", routedModel)
+	require.Equal(t, "gpt-5.5", baseModel)
 }

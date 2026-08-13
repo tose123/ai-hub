@@ -83,33 +83,25 @@ func ShouldPreserveThinkingSuffix(modelName string) bool {
 
 var matchingEffortSuffixes = []string{"-max", "-xhigh", "-high", "-medium", "-low", "-minimal", "-none"}
 
-const compactModelSuffixForMatching = "-openai-compact"
-
 func BaseModelForMatching(modelName string) string {
 	target := strings.TrimSpace(modelName)
 	if target == "" {
 		return target
 	}
 
-	compactSuffix := ""
-	if strings.HasSuffix(target, compactModelSuffixForMatching) {
-		target = strings.TrimSuffix(target, compactModelSuffixForMatching)
-		compactSuffix = compactModelSuffixForMatching
-	}
-
 	if !ShouldPreserveThinkingSuffix(target) {
 		if base, ok := trimThinkingSuffixForMatching(target); ok {
-			return base + compactSuffix
+			return base
 		}
 	}
 
 	for _, suffix := range matchingEffortSuffixes {
 		if strings.HasSuffix(target, suffix) && len(target) > len(suffix) {
-			return strings.TrimSuffix(target, suffix) + compactSuffix
+			return strings.TrimSuffix(target, suffix)
 		}
 	}
 
-	return target + compactSuffix
+	return target
 }
 
 func trimThinkingSuffixForMatching(modelName string) (string, bool) {

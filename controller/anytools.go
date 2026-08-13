@@ -77,15 +77,37 @@ func CheckoutAnytools(c *gin.Context) {
 	}
 
 	tokenId := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
+	tokenKey := common.GetContextKeyString(c, constant.ContextKeyTokenKey)
 	userId := common.GetContextKeyInt(c, constant.ContextKeyUserId)
-	if err := model.DecreaseTokenQuota(tokenId, common.GetContextKeyString(c, constant.ContextKeyTokenKey), quota); err != nil {
-		common.SysLog("Anytools token checkout failed: " + err.Error())
+	tokenReservation, err := model.TryReserveTokenQuotaWithReceipt(
+		tokenId,
+		tokenKey,
+		quota,
+		common.GetContextKeyBool(c, constant.ContextKeyTokenUnlimited),
+	)
+	if err != nil {
+		common.SysLog("Anytools token reservation failed: " + err.Error())
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to checkout"})
 		return
 	}
-	if err := model.DecreaseUserQuota(userId, quota, false); err != nil {
-		common.SysLog("Anytools user checkout failed: " + err.Error())
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to checkout"})
+	if !tokenReservation.Reserved() {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "insufficient API key balance"})
+		return
+	}
+
+	userReserved, userReserveErr := model.TryReserveUserQuota(userId, quota)
+	if userReserveErr != nil || !userReserved {
+		if refundErr := tokenReservation.Refund(); refundErr != nil {
+			common.SysError("Anytools token compensation failed after wallet reservation failure: " + refundErr.Error())
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to checkout"})
+			return
+		}
+		if userReserveErr != nil {
+			common.SysLog("Anytools wallet reservation failed: " + userReserveErr.Error())
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to checkout"})
+			return
+		}
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "insufficient wallet balance"})
 		return
 	}
 	model.UpdateUserUsedQuotaAndRequestCount(userId, quota)

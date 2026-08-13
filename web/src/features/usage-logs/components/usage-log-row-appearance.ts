@@ -41,9 +41,9 @@ const logTypeRowClassNames: Record<
 
 const retryRowClassNames: Record<CommonLogRowSurface, string> = {
   table:
-    'text-muted-foreground [&>td]:opacity-50 [&>td]:transition-opacity hover:[&>td]:opacity-90 focus-within:[&>td]:opacity-90',
+    'text-muted-foreground [&>td]:opacity-70 [&>td]:transition-opacity hover:[&>td]:opacity-90 focus-within:[&>td]:opacity-90',
   mobile:
-    'border-border/40 text-muted-foreground opacity-50 hover:opacity-90 focus-within:opacity-90',
+    'border-border/40 text-muted-foreground opacity-70 hover:opacity-90 focus-within:opacity-90',
 }
 
 const quotaSaturationRowClassNames: Record<CommonLogRowSurface, string> = {

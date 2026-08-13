@@ -83,6 +83,7 @@ func newAnytoolsControllerTestContext(t *testing.T, path string, body interface{
 	common.SetContextKey(ctx, constant.ContextKeyUserName, "anytools-user")
 	common.SetContextKey(ctx, constant.ContextKeyTokenId, token.Id)
 	common.SetContextKey(ctx, constant.ContextKeyTokenKey, token.Key)
+	common.SetContextKey(ctx, constant.ContextKeyTokenUnlimited, token.UnlimitedQuota)
 	ctx.Set("token_name", token.Name)
 	common.SetContextKey(ctx, constant.ContextKeyUsingGroup, "default")
 	return ctx, recorder
@@ -123,10 +124,10 @@ func TestGetAnytoolsBalance(t *testing.T) {
 }
 
 func TestCheckoutAnytools(t *testing.T) {
-	t.Run("overdraft updates quota statistics and log", func(t *testing.T) {
+	t.Run("successful checkout updates quota statistics and log", func(t *testing.T) {
 		db := setupAnytoolsControllerTestDB(t)
-		user := &model.User{Id: 1, Username: "anytools-user", Status: common.UserStatusEnabled, Quota: 1, UsedQuota: 10, RequestCount: 2}
-		token := &model.Token{Id: 1, UserId: user.Id, Key: "anytools-key", Name: "anytools-token", Status: common.TokenStatusEnabled, RemainQuota: 1, UsedQuota: 20}
+		user := &model.User{Id: 1, Username: "anytools-user", Status: common.UserStatusEnabled, Quota: 100, UsedQuota: 10, RequestCount: 2}
+		token := &model.Token{Id: 1, UserId: user.Id, Key: "anytools-key", Name: "anytools-token", Status: common.TokenStatusEnabled, RemainQuota: 100, UsedQuota: 20}
 		require.NoError(t, db.Create(user).Error)
 		require.NoError(t, db.Create(token).Error)
 
@@ -146,13 +147,13 @@ func TestCheckoutAnytools(t *testing.T) {
 
 		var updatedUser model.User
 		require.NoError(t, db.First(&updatedUser, user.Id).Error)
-		assert.Equal(t, -1, updatedUser.Quota)
+		assert.Equal(t, 98, updatedUser.Quota)
 		assert.Equal(t, 12, updatedUser.UsedQuota)
 		assert.Equal(t, 3, updatedUser.RequestCount)
 
 		var updatedToken model.Token
 		require.NoError(t, db.First(&updatedToken, token.Id).Error)
-		assert.Equal(t, -1, updatedToken.RemainQuota)
+		assert.Equal(t, 98, updatedToken.RemainQuota)
 		assert.Equal(t, 22, updatedToken.UsedQuota)
 
 		var logs []model.Log
@@ -163,6 +164,76 @@ func TestCheckoutAnytools(t *testing.T) {
 		assert.Equal(t, "  billed tool call  ", logs[0].Content)
 		assert.Equal(t, "external-model", logs[0].ModelName)
 		assert.Equal(t, token.Id, logs[0].TokenId)
+	})
+
+	t.Run("insufficient API key leaves wallet and usage unchanged", func(t *testing.T) {
+		db := setupAnytoolsControllerTestDB(t)
+		user := &model.User{Id: 1, Username: "anytools-user", Status: common.UserStatusEnabled, Quota: 100, UsedQuota: 10, RequestCount: 2}
+		token := &model.Token{Id: 1, UserId: user.Id, Key: "anytools-key", Name: "anytools-token", Status: common.TokenStatusEnabled, RemainQuota: 1, UsedQuota: 20}
+		require.NoError(t, db.Create(user).Error)
+		require.NoError(t, db.Create(token).Error)
+
+		ctx, recorder := newAnytoolsControllerTestContext(t, "/v1/anytools/checkout", anytoolsCheckoutRequest{
+			Cost: "0.000004", Info: "billed tool call", Model: "external-model",
+		}, user.Id, token)
+		CheckoutAnytools(ctx)
+
+		assert.Equal(t, http.StatusForbidden, recorder.Code)
+		var response struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}
+		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+		assert.False(t, response.Success)
+		assert.Equal(t, "insufficient API key balance", response.Message)
+
+		var updatedUser model.User
+		require.NoError(t, db.First(&updatedUser, user.Id).Error)
+		assert.Equal(t, 100, updatedUser.Quota)
+		assert.Equal(t, 10, updatedUser.UsedQuota)
+		assert.Equal(t, 2, updatedUser.RequestCount)
+		var updatedToken model.Token
+		require.NoError(t, db.First(&updatedToken, token.Id).Error)
+		assert.Equal(t, 1, updatedToken.RemainQuota)
+		assert.Equal(t, 20, updatedToken.UsedQuota)
+		var logCount int64
+		require.NoError(t, db.Model(&model.Log{}).Count(&logCount).Error)
+		assert.Zero(t, logCount)
+	})
+
+	t.Run("insufficient wallet refunds API key and leaves usage unchanged", func(t *testing.T) {
+		db := setupAnytoolsControllerTestDB(t)
+		user := &model.User{Id: 1, Username: "anytools-user", Status: common.UserStatusEnabled, Quota: 1, UsedQuota: 10, RequestCount: 2}
+		token := &model.Token{Id: 1, UserId: user.Id, Key: "anytools-key", Name: "anytools-token", Status: common.TokenStatusEnabled, RemainQuota: 100, UsedQuota: 20}
+		require.NoError(t, db.Create(user).Error)
+		require.NoError(t, db.Create(token).Error)
+
+		ctx, recorder := newAnytoolsControllerTestContext(t, "/v1/anytools/checkout", anytoolsCheckoutRequest{
+			Cost: "0.000004", Info: "billed tool call", Model: "external-model",
+		}, user.Id, token)
+		CheckoutAnytools(ctx)
+
+		assert.Equal(t, http.StatusForbidden, recorder.Code)
+		var response struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}
+		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+		assert.False(t, response.Success)
+		assert.Equal(t, "insufficient wallet balance", response.Message)
+
+		var updatedUser model.User
+		require.NoError(t, db.First(&updatedUser, user.Id).Error)
+		assert.Equal(t, 1, updatedUser.Quota)
+		assert.Equal(t, 10, updatedUser.UsedQuota)
+		assert.Equal(t, 2, updatedUser.RequestCount)
+		var updatedToken model.Token
+		require.NoError(t, db.First(&updatedToken, token.Id).Error)
+		assert.Equal(t, 100, updatedToken.RemainQuota)
+		assert.Equal(t, 20, updatedToken.UsedQuota)
+		var logCount int64
+		require.NoError(t, db.Model(&model.Log{}).Count(&logCount).Error)
+		assert.Zero(t, logCount)
 	})
 
 	t.Run("validates fields and cost", func(t *testing.T) {

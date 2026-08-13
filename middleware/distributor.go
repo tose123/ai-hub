@@ -46,9 +46,6 @@ func Distribute() func(c *gin.Context) {
 			return
 		}
 		externalModel := baseModel
-		if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") {
-			externalModel = strings.TrimSuffix(externalModel, ratio_setting.CompactModelSuffix)
-		}
 		common.SetContextKey(c, constant.ContextKeyExternalModel, externalModel)
 		common.SetContextKey(c, constant.ContextKeyExternalModelMapped, externalModelMapped)
 		if ok {
@@ -120,7 +117,7 @@ func Distribute() func(c *gin.Context) {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
-						model.ChannelSupportsRequestPath(preferred, c.Request.URL.Path) {
+						model.ChannelSupportsRequestPathAndModel(preferred, c.Request.URL.Path, routedModel) {
 						if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetRequestAutoGroups(c, userGroup)
@@ -148,11 +145,12 @@ func Distribute() func(c *gin.Context) {
 
 				if channel == nil {
 					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
-						Ctx:         c,
-						ModelName:   baseModel,
-						TokenGroup:  usingGroup,
-						RequestPath: c.Request.URL.Path,
-						Retry:       common.GetPointer(0),
+						Ctx:            c,
+						ModelName:      baseModel,
+						RouteModelName: routedModel,
+						TokenGroup:     usingGroup,
+						RequestPath:    c.Request.URL.Path,
+						Retry:          common.GetPointer(0),
 					})
 					if err != nil {
 						showGroup := usingGroup
@@ -215,13 +213,7 @@ func applyModelMapping(c *gin.Context, requestModel string, modelMap map[string]
 		return requestModel, false, nil
 	}
 
-	mappingModelName := requestModel
-	isResponsesCompact := strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact")
-	if isResponsesCompact && strings.HasSuffix(requestModel, ratio_setting.CompactModelSuffix) {
-		mappingModelName = strings.TrimSuffix(requestModel, ratio_setting.CompactModelSuffix)
-	}
-
-	currentModel := mappingModelName
+	currentModel := requestModel
 	visitedModels := map[string]bool{
 		currentModel: true,
 	}
@@ -242,9 +234,6 @@ func applyModelMapping(c *gin.Context, requestModel string, modelMap map[string]
 		currentModel = mappedModel
 	}
 
-	if isResponsesCompact {
-		return ratio_setting.WithCompactModelSuffix(currentModel), isMapped, nil
-	}
 	return currentModel, isMapped, nil
 }
 
@@ -475,9 +464,6 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 	}
 
 	common.SetContextKey(c, constant.ContextKeyRequestModel, modelRequest.Model)
-	if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") && modelRequest.Model != "" {
-		modelRequest.Model = ratio_setting.WithCompactModelSuffix(modelRequest.Model)
-	}
 	return &modelRequest, shouldSelectChannel, nil
 }
 

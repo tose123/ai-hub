@@ -395,19 +395,6 @@ func GetModelPrice(name string, printErr bool) (float64, bool) {
 		return price, true
 	}
 
-	for _, candidate := range modelBillingLookupCandidates(name) {
-		if strings.HasSuffix(candidate, CompactModelSuffix) {
-			price, ok := modelPriceMap.Get(CompactWildcardModelKey)
-			if !ok {
-				if printErr {
-					common.SysError("model price not found: " + name)
-				}
-				return -1, false
-			}
-			return price, true
-		}
-	}
-
 	if printErr {
 		common.SysError("model price not found: " + name)
 	}
@@ -431,14 +418,6 @@ func GetModelRatio(name string) (float64, bool, string) {
 		return ratio, true, matchName
 	}
 
-	for _, candidate := range modelBillingLookupCandidates(name) {
-		if strings.HasSuffix(candidate, CompactModelSuffix) {
-			if wildcardRatio, ok := modelRatioMap.Get(CompactWildcardModelKey); ok {
-				return wildcardRatio, true, candidate
-			}
-			//return 0, true, name
-		}
-	}
 	return 37.5, operation_setting.SelfUseModeEnabled, name
 }
 

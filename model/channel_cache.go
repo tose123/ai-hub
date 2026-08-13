@@ -23,24 +23,24 @@ var channelsIDM map[int]*Channel                     // all channels include dis
 var channel2advancedCustomConfig map[int]*dto.AdvancedCustomConfig
 var channelSyncLock sync.RWMutex
 
-func channelSupportsRequestPathNoLock(channel *Channel, requestPath string) bool {
+func channelSupportsRequestPathAndModelNoLock(channel *Channel, requestPath string, model string) bool {
 	if channel == nil || requestPath == "" || channel.Type != constant.ChannelTypeAdvancedCustom {
 		return true
 	}
 	if config, ok := channel2advancedCustomConfig[channel.Id]; ok && config != nil {
-		return config.SupportsPath(requestPath)
+		return config.SupportsPathForModel(requestPath, model)
 	}
 	config := channel.GetOtherSettings().AdvancedCustom
-	return config != nil && config.SupportsPath(requestPath)
+	return config != nil && config.SupportsPathForModel(requestPath, model)
 }
 
-func ChannelSupportsRequestPath(channel *Channel, requestPath string) bool {
+func ChannelSupportsRequestPathAndModel(channel *Channel, requestPath string, model string) bool {
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
-	return channelSupportsRequestPathNoLock(channel, requestPath)
+	return channelSupportsRequestPathAndModelNoLock(channel, requestPath, model)
 }
 
-func filterChannelsByRequestPath(channelIDs []int, requestPath string) []int {
+func filterChannelsByRequestPathAndModel(channelIDs []int, requestPath string, model string) []int {
 	if requestPath == "" || len(channelIDs) == 0 {
 		return channelIDs
 	}
@@ -50,7 +50,7 @@ func filterChannelsByRequestPath(channelIDs []int, requestPath string) []int {
 		if !ok {
 			continue
 		}
-		if channelSupportsRequestPathNoLock(channel, requestPath) {
+		if channelSupportsRequestPathAndModelNoLock(channel, requestPath, model) {
 			filtered = append(filtered, channelID)
 		}
 	}
@@ -71,8 +71,8 @@ func filterExcludedChannelIDs(channelIDs []int, excludedChannelIDs map[int]struc
 	return filtered
 }
 
-func getFilteredCachedChannelIDs(group string, model string, requestPath string, excludedChannelIDs map[int]struct{}) []int {
-	channels := filterExcludedChannelIDs(filterChannelsByRequestPath(group2model2channels[group][model], requestPath), excludedChannelIDs)
+func getFilteredCachedChannelIDs(group string, model string, routeModel string, requestPath string, excludedChannelIDs map[int]struct{}) []int {
+	channels := filterExcludedChannelIDs(filterChannelsByRequestPathAndModel(group2model2channels[group][model], requestPath, routeModel), excludedChannelIDs)
 	if len(channels) > 0 {
 		return channels
 	}
@@ -81,7 +81,7 @@ func getFilteredCachedChannelIDs(group string, model string, requestPath string,
 	if normalizedModel == "" || normalizedModel == model {
 		return nil
 	}
-	return filterExcludedChannelIDs(filterChannelsByRequestPath(group2model2channels[group][normalizedModel], requestPath), excludedChannelIDs)
+	return filterExcludedChannelIDs(filterChannelsByRequestPathAndModel(group2model2channels[group][normalizedModel], requestPath, routeModel), excludedChannelIDs)
 }
 
 func InitChannelCache() {
@@ -172,16 +172,16 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string, excludedChannelIDs map[int]struct{}) (*Channel, error) {
+func GetRandomSatisfiedChannel(group string, model string, routeModel string, retry int, requestPath string, excludedChannelIDs map[int]struct{}) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, requestPath, excludedChannelIDs)
+		return GetChannel(group, model, routeModel, retry, requestPath, excludedChannelIDs)
 	}
 
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
 
-	channels := getFilteredCachedChannelIDs(group, model, requestPath, excludedChannelIDs)
+	channels := getFilteredCachedChannelIDs(group, model, routeModel, requestPath, excludedChannelIDs)
 
 	if len(channels) == 0 {
 		return nil, nil
@@ -275,15 +275,15 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 	return nil, errors.New("channel not found")
 }
 
-func GetSatisfiedChannelPriorityCount(group string, model string, requestPath string, excludedChannelIDs map[int]struct{}) (int, error) {
+func GetSatisfiedChannelPriorityCount(group string, model string, routeModel string, requestPath string, excludedChannelIDs map[int]struct{}) (int, error) {
 	if !common.MemoryCacheEnabled {
-		return GetChannelPriorityCount(group, model, requestPath, excludedChannelIDs)
+		return GetChannelPriorityCount(group, model, routeModel, requestPath, excludedChannelIDs)
 	}
 
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
 
-	channels := getFilteredCachedChannelIDs(group, model, requestPath, excludedChannelIDs)
+	channels := getFilteredCachedChannelIDs(group, model, routeModel, requestPath, excludedChannelIDs)
 	if len(channels) == 0 {
 		return 0, nil
 	}
@@ -299,15 +299,15 @@ func GetSatisfiedChannelPriorityCount(group string, model string, requestPath st
 	return len(uniquePriorities), nil
 }
 
-func GetSatisfiedChannelCount(group string, model string, requestPath string, excludedChannelIDs map[int]struct{}) (int, error) {
+func GetSatisfiedChannelCount(group string, model string, routeModel string, requestPath string, excludedChannelIDs map[int]struct{}) (int, error) {
 	if !common.MemoryCacheEnabled {
-		return GetChannelCount(group, model, requestPath, excludedChannelIDs)
+		return GetChannelCount(group, model, routeModel, requestPath, excludedChannelIDs)
 	}
 
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
 
-	return len(getFilteredCachedChannelIDs(group, model, requestPath, excludedChannelIDs)), nil
+	return len(getFilteredCachedChannelIDs(group, model, routeModel, requestPath, excludedChannelIDs)), nil
 }
 
 func CacheGetChannel(id int) (*Channel, error) {
