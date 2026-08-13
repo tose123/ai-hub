@@ -18,7 +18,7 @@ defaults:
 bootstrap:
   state: complete
   source_merge_base: 1db6ae19576d7019fec38cc63a3b94ce609c92c9
-  reviewed_local_head: 7f967219535089fbfe93717029ea03faa0e06bed
+  reviewed_local_head: dcc92230d1999a29c552cb07653fd2690803ff81
 
 # 已审阅条目使用以下结构：
 # - id: anytools-shared-auth
@@ -44,14 +44,18 @@ features:
       - controller/anytools.go
       - controller/anytools_test.go
       - middleware/auth.go
+      - model/quota_reserve.go
       - router/relay-router.go
-    symbols: [AnytoolsAuth, GetAnytoolsBalance, CheckoutAnytools]
+    symbols: [AnytoolsAuth, GetAnytoolsBalance, CheckoutAnytools, TryReserveTokenQuota, TryReserveUserQuota]
     behavior:
       - 将旧 mcphub 接口改为 `/v1/anytools`，提供余额查询与按美元成本扣费接口。
       - 所有 AnyTools 请求须通过 `ANYTOOLS_AUTH_TOKEN` 与 `X-Anytools-Token` 的恒定时间校验。
-      - 扣费同时更新令牌、用户额度、已用额度、请求次数及消费日志。
+      - 结算先原子预扣有限 API Key，再原子预扣用户钱包；任一余额不足均以 `HTTP 403`、`success: false` 拒绝，并区分 API Key 与钱包不足。
+      - 钱包预扣失败时退还已扣 API Key；补偿失败则以 `HTTP 500` 失败、写入 `SysError` 高危告警，且不自动重试非幂等退款。
+      - 仅在 API Key 与钱包均扣费成功后更新用户已用额度、请求次数及消费日志；失败或补偿异常不得写入消费统计。
+    review_note: 用户于 2026-08-13 确认 AnyTools 改为余额充足型结算，不再允许钱包或有限 API Key 扣至负数，并采用上述扣费、补偿及错误响应契约。
     verification:
-      - go test ./controller ./middleware
+      - go test ./controller ./middleware ./model
     protection: preserve_local_behavior
     upstream_security_overlap: ask_user
 
@@ -99,16 +103,18 @@ features:
       - middleware/distributor.go
       - model/main.go
       - model/token.go
+      - model/token_cache.go
       - relay/helper/model_mapped.go
       - service/log_info_generate.go
       - setting/model_setting/global.go
       - web/src/features/system-settings/models/global-settings-card.tsx
       - web/src/features/usage-logs/**
-    symbols: [resolveRoutedModel, applyModelMapping, applyTokenModelMapping, getMappedModelAliases, ApplyMappedModelInfoForController]
+    symbols: [resolveRoutedModel, applyModelMapping, applyTokenModelMapping, getMappedModelAliases, ApplyMappedModelInfoForController, cacheInitToken]
     behavior:
       - 请求模型依次应用全局映射、API Key 映射与渠道映射，并检测循环映射。
       - 内置 thinking 后缀按基础模型匹配，同时对外模型列表保留本地别名。
       - 日志分离记录请求模型、映射模型与上游实际模型，前端按层展示。
+      - API Key 的 Redis 冷缓存初始化与更新必须保留 `model_mapping`，不得因上游缓存 fence 重构丢失令牌级映射。
     verification:
       - go test ./controller ./middleware ./model ./relay/helper ./service ./setting/...
       - cd web && bun run typecheck && bun run build
@@ -128,10 +134,11 @@ features:
       - service/channel_affinity.go
       - service/channel_select.go
       - web/src/features/channels/components/channels-table.tsx
-    symbols: [CacheGetRandomSatisfiedChannel, GetPreferredChannelByAffinity, RecordChannelAffinity, InvalidateCurrentChannelAffinityCache]
+    symbols: [CacheGetRandomSatisfiedChannel, GetPreferredChannelByAffinity, RecordChannelAffinity, InvalidateCurrentChannelAffinityCache, DeprioritizeFailedChannel]
     behavior:
       - 分组响应稳定排序，渠道允许较低优先级值；管理表默认按优先级排序。
       - 自动重试在同组按优先级推进，耗尽后才跨组；失败渠道被排除，重试次数受优先级层数约束。
+      - 请求失败后的渠道降权仅更新 Channel 与现有 Ability 的 `priority`，不得全量重建 Ability 或覆盖并发状态变更。
       - 同渠道命中保留亲和 TTL；清空、禁用或零 usage 等异常按本地规则失效亲和缓存。
       - 指定渠道 ID 使用独立上下文键，避免与普通分发状态混淆。
     verification:
@@ -246,11 +253,11 @@ features:
       - service/invite_cashback_task.go
       - web/src/features/auth/sign-up/components/sign-up-form.tsx
       - web/src/features/wallet/components/dialogs/transfer-dialog.tsx
-    symbols: [Register, TransferAffQuota, StartInviteCashbackTask, ApplyInviteCashback]
+    symbols: [Register, TransferAffQuota, TransferAffQuotaToQuota, StartInviteCashbackTask, ApplyInviteCashback]
     behavior:
       - 注册必须提供有效邀请码。
       - 每日按被邀请人上一日钱包净消费计算返现，幂等写入记录并增加邀请人余额。
-      - 用户可将邀请奖励额度转入可用余额。
+      - 用户可将邀请奖励额度转入可用余额；DB 事务成功后立即同步或失效 Redis 钱包额度缓存，缓存失败仅记错，不把已提交事务伪报为失败。
     verification:
       - go test ./controller ./model ./service
       - cd web && bun run typecheck && bun run build
@@ -297,7 +304,7 @@ features:
   - id: usage-log-observability-ui
     status: approved
     category: ui
-    source_commits: ["f24a5137c", "8a43a4b47", "6fd452927", "ae32dd383", "39ce6493c", "33ca91330", "4420a8ac4", "3b3700617", "f802daedf", "22766f8f7", "9b1123f7c", "5fec4cb55", "a9a2092db", "f29da41dc"]
+    source_commits: ["f24a5137c", "8a43a4b47", "6fd452927", "ae32dd383", "39ce6493c", "33ca91330", "4420a8ac4", "3b3700617", "f802daedf", "22766f8f7", "9b1123f7c", "5fec4cb55", "a9a2092db", "f29da41dc", "df6c0efdb"]
     paths:
       - controller/log.go
       - model/log.go
@@ -309,6 +316,7 @@ features:
       - 日志记录并仅向管理员展示请求 User-Agent、取消状态、完整 IP 与流状态详情。
       - 日志页支持自动刷新、本地默认时间范围、模型映射分层、Claude cache、缓存占比及工具调用展示。
       - Token/费用格式按本地精度展示，输入 token 可按缓存 token 拆分显示；客户端筛选被禁用。
+      - 管理员视图弱化可重试错误；普通用户仍显示错误色；额度饱和警告优先于重试弱化，桌面表格与移动卡片一致。
       - 个人通知页隐藏“记录 IP”开关。
     verification:
       - go test ./controller ./model
@@ -319,7 +327,7 @@ features:
   - id: local-ui-brand-layout-and-product-surface
     status: approved
     category: ui
-    source_commits: ["b568c3d7d", "5b0ccc574", "167f65319", "129d1bb89", "67968e290", "029928d3c", "76ffa51b9", "6834d928e", "1a0aa5ea9", "a9c004cf4"]
+    source_commits: ["b568c3d7d", "5b0ccc574", "167f65319", "129d1bb89", "67968e290", "029928d3c", "76ffa51b9", "6834d928e", "1a0aa5ea9", "a9c004cf4", "5f3fd8c5c"]
     paths:
       - web/index.html
       - web/package.json
@@ -338,7 +346,7 @@ features:
       - web/src/styles/**
     symbols: [ThemeProvider, OverviewDashboard, PricingSidebar, ModelStatus]
     behavior:
-      - 前端采用本地单主题视觉体系、MiSans 字体、本地 Logo 与统一装饰色。
+      - 前端采用本地单主题视觉体系、MiSans 字体、本地 Logo 与统一装饰色；MiSans 样式及预连接统一使用 `npm.webcache.cn`。
       - 首页、Dashboard、Pricing、Rankings 与导航保持本地布局；首页部分功能区与价格模型详情被隐藏。
       - 提供本地模型状态页及其嵌入代理；兑换码入口显示为醒目主按钮。
     verification:
