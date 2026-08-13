@@ -18,7 +18,7 @@ defaults:
 bootstrap:
   state: complete
   source_merge_base: 1db6ae19576d7019fec38cc63a3b94ce609c92c9
-  reviewed_local_head: dcc92230d1999a29c552cb07653fd2690803ff81
+  reviewed_local_head: 4ed96c8eb1beaf4ddd425bd435f5a58ef4ad446e
 
 # 已审阅条目使用以下结构：
 # - id: anytools-shared-auth
@@ -115,6 +115,7 @@ features:
       - 内置 thinking 后缀按基础模型匹配，同时对外模型列表保留本地别名。
       - 日志分离记录请求模型、映射模型与上游实际模型，前端按层展示。
       - API Key 的 Redis 冷缓存初始化与更新必须保留 `model_mapping`，不得因上游缓存 fence 重构丢失令牌级映射。
+      - Advanced Custom 渠道查找仍按 thinking 基础模型匹配 Ability，但路由支持检查必须使用完整映射后模型；缓存、数据库、亲和与重试路径语义一致。
     verification:
       - go test ./controller ./middleware ./model ./relay/helper ./service ./setting/...
       - cd web && bun run typecheck && bun run build
@@ -141,6 +142,7 @@ features:
       - 请求失败后的渠道降权仅更新 Channel 与现有 Ability 的 `priority`，不得全量重建 Ability 或覆盖并发状态变更。
       - 同渠道命中保留亲和 TTL；清空、禁用或零 usage 等异常按本地规则失效亲和缓存。
       - 指定渠道 ID 使用独立上下文键，避免与普通分发状态混淆。
+    review_note: 用户于 2026-08-13 确认吸收上游 Advanced Custom 模型级路由能力，同时保留本地基础模型选路、完整映射后模型验路及重试/亲和契约。
     verification:
       - go test ./controller ./middleware ./model ./service
     protection: preserve_local_behavior
