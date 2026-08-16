@@ -16,39 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { after, describe, test } from 'node:test'
+import { render } from '@testing-library/react'
+import { describe, expect, test } from 'vitest'
 
-import { Window } from 'happy-dom'
-
-const domWindow = new Window()
-const domGlobals = [
-  'window',
-  'document',
-  'navigator',
-  'HTMLElement',
-  'HTMLButtonElement',
-  'SVGElement',
-  'Node',
-  'Element',
-  'Event',
-  'CustomEvent',
-  'MutationObserver',
-  'ResizeObserver',
-  'requestAnimationFrame',
-  'cancelAnimationFrame',
-  'getComputedStyle',
-] as const
-
-for (const key of domGlobals) {
-  Object.defineProperty(globalThis, key, {
-    configurable: true,
-    value: domWindow[key],
-  })
-}
-
-const { act } = await import('react')
-const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { ApiKeyGroupCell } = await import('../api-key-group-cell')
@@ -60,15 +30,11 @@ await i18n.use(initReactI18next).init({
     en: {
       translation: {
         Auto: 'Auto',
+        Ratio: 'Ratio',
       },
     },
   },
 })
-
-const reactTestGlobals = globalThis as typeof globalThis & {
-  IS_REACT_ACT_ENVIRONMENT?: boolean
-}
-reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 
 function CellHarness(props: { group: string; ratio?: number | string }) {
   return (
@@ -79,50 +45,32 @@ function CellHarness(props: { group: string; ratio?: number | string }) {
 }
 
 describe('API key group table cell', () => {
-  after(() => {
-    domWindow.close()
-  })
-
-  test('renders Auto as one standard badge without retry, ratio, or animated borders', async () => {
-    const container = document.createElement('div')
-    document.body.append(container)
-    const root = createRoot(container)
-
-    await act(async () =>
-      root.render(<CellHarness group='auto' ratio='自动' />)
-    )
+  test('renders Auto as one standard badge without retry, ratio, or animated borders', () => {
+    const { container } = render(<CellHarness group='auto' ratio='自动' />)
 
     const badges = container.querySelectorAll('[data-slot="status-badge"]')
-    assert.equal(badges.length, 1)
-    assert.equal(badges[0]?.textContent, 'Auto')
-    assert.equal(container.textContent?.includes('自动'), false)
-    assert.equal(container.textContent?.includes('Cross-group'), false)
-    assert.equal(container.textContent?.includes('Ratio'), false)
-    assert.equal(container.querySelector('[data-auto-group-frame]'), null)
-    assert.equal(container.querySelector('[data-auto-group-flow-border]'), null)
-
-    await act(async () => root.unmount())
-    container.remove()
+    expect(badges).toHaveLength(1)
+    expect(badges[0]).toHaveTextContent('Auto')
+    expect(container).not.toHaveTextContent('自动')
+    expect(container).not.toHaveTextContent('Cross-group')
+    expect(container).not.toHaveTextContent('Ratio')
+    expect(container.querySelector('[data-auto-group-frame]')).toBeNull()
+    expect(container.querySelector('[data-auto-group-flow-border]')).toBeNull()
   })
 
-  test('narrows normal group ratios to numbers and never applies Auto rings', async () => {
-    const container = document.createElement('div')
-    document.body.append(container)
-    const root = createRoot(container)
+  test('narrows normal group ratios to numbers and never applies Auto rings', () => {
+    const { container, rerender } = render(
+      <CellHarness group='vip' ratio='自动' />
+    )
 
-    await act(async () => root.render(<CellHarness group='vip' ratio='自动' />))
+    expect(container).toHaveTextContent('vip')
+    expect(container).not.toHaveTextContent('自动')
+    expect(container.querySelector('[data-auto-group-frame]')).toBeNull()
+    expect(container.querySelector('[data-auto-group-flow-border]')).toBeNull()
 
-    assert.equal(container.textContent?.includes('vip'), true)
-    assert.equal(container.textContent?.includes('自动'), false)
-    assert.equal(container.querySelector('[data-auto-group-frame]'), null)
-    assert.equal(container.querySelector('[data-auto-group-flow-border]'), null)
+    rerender(<CellHarness group='vip' ratio={3} />)
 
-    await act(async () => root.render(<CellHarness group='vip' ratio={3} />))
-
-    assert.equal(container.textContent?.includes('3x'), true)
-    assert.equal(container.querySelector('[data-auto-group-frame]'), null)
-
-    await act(async () => root.unmount())
-    container.remove()
+    expect(container).toHaveTextContent('3x')
+    expect(container.querySelector('[data-auto-group-frame]')).toBeNull()
   })
 })

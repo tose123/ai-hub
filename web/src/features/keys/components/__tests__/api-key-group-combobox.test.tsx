@@ -16,42 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { after, describe, test } from 'node:test'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { describe, expect, test } from 'vitest'
 
-import { Window } from 'happy-dom'
-
-const domWindow = new Window()
-const domGlobals = [
-  'window',
-  'document',
-  'navigator',
-  'HTMLElement',
-  'HTMLButtonElement',
-  'HTMLInputElement',
-  'SVGElement',
-  'Node',
-  'Element',
-  'Event',
-  'KeyboardEvent',
-  'PointerEvent',
-  'CustomEvent',
-  'MutationObserver',
-  'ResizeObserver',
-  'requestAnimationFrame',
-  'cancelAnimationFrame',
-  'getComputedStyle',
-] as const
-
-for (const key of domGlobals) {
-  Object.defineProperty(globalThis, key, {
-    configurable: true,
-    value: domWindow[key],
-  })
-}
-
-const { act, useState } = await import('react')
-const { createRoot } = await import('react-dom/client')
+const { useState } = await import('react')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { ApiKeyGroupCombobox } = await import('../api-key-group-combobox')
@@ -71,11 +39,6 @@ await i18n.use(initReactI18next).init({
     },
   },
 })
-
-const reactTestGlobals = globalThis as typeof globalThis & {
-  IS_REACT_ACT_ENVIRONMENT?: boolean
-}
-reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
 
 const options = [
   { value: 'default', label: 'default', desc: 'User group', ratio: 1 },
@@ -103,122 +66,86 @@ function Harness(props: { initialValue: string }) {
   )
 }
 
-function getTrigger(container: ParentNode): HTMLButtonElement {
-  const trigger = container.querySelector<HTMLButtonElement>(
-    'button[role="combobox"]'
-  )
-  assert.ok(trigger)
-  return trigger
+function getTrigger(): HTMLButtonElement {
+  return screen.getByRole('combobox')
 }
 
 function getCommandItem(label: string): HTMLElement {
   const item = [
     ...document.querySelectorAll<HTMLElement>('[data-slot="command-item"]'),
   ].find((candidate) => candidate.textContent?.includes(label))
-  assert.ok(item)
+  if (!item) {
+    throw new Error(`Expected command item containing "${label}"`)
+  }
   return item
 }
 
 describe('API key group combobox', () => {
-  after(() => {
-    domWindow.close()
-  })
+  test('keeps Auto first and uses standard borders for its trigger, option, and ratio', () => {
+    render(<Harness initialValue='auto' />)
 
-  test('keeps Auto first and uses standard borders for its trigger, option, and ratio', async () => {
-    const container = document.createElement('div')
-    document.body.append(container)
-    const root = createRoot(container)
-
-    await act(async () => root.render(<Harness initialValue='auto' />))
-
-    const trigger = getTrigger(container)
-    assert.equal(trigger.getAttribute('aria-expanded'), 'false')
-    assert.equal(trigger.hasAttribute('data-auto-group-effect'), false)
-    assert.equal(trigger.querySelector('[data-auto-group-frame]'), null)
-    assert.equal(trigger.querySelector('[data-auto-group-flow-border]'), null)
+    const trigger = getTrigger()
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(trigger).not.toHaveAttribute('data-auto-group-effect')
+    expect(trigger.querySelector('[data-auto-group-frame]')).toBeNull()
+    expect(trigger.querySelector('[data-auto-group-flow-border]')).toBeNull()
 
     const triggerRatio = [
       ...trigger.querySelectorAll('[data-slot="badge"]'),
     ].find((badge) => badge.textContent === 'Auto Ratio')
-    assert.ok(triggerRatio)
-    assert.equal(triggerRatio.textContent?.includes('x'), false)
-    assert.equal(trigger.textContent?.includes('自动'), false)
+    expect(triggerRatio).toBeDefined()
+    expect(triggerRatio).not.toHaveTextContent('x')
+    expect(trigger).not.toHaveTextContent('自动')
 
-    await act(async () => trigger.click())
-    assert.equal(trigger.getAttribute('aria-expanded'), 'true')
+    fireEvent.click(trigger)
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
 
     const commandItems = [
       ...document.querySelectorAll<HTMLElement>('[data-slot="command-item"]'),
     ]
-    assert.equal(
-      commandItems[0]?.textContent?.includes('Global automatic routing'),
-      true
-    )
+    expect(commandItems[0]).toHaveTextContent('Global automatic routing')
+
     const autoOption = getCommandItem('Global automatic routing')
-    assert.equal(autoOption.getAttribute('aria-selected'), 'true')
-    assert.equal(autoOption.hasAttribute('data-auto-group-effect'), false)
-    assert.equal(autoOption.querySelector('[data-auto-group-frame]'), null)
-    assert.equal(
-      autoOption.querySelector('[data-auto-group-flow-border]'),
-      null
-    )
+    expect(autoOption).toHaveAttribute('aria-selected', 'true')
+    expect(autoOption).not.toHaveAttribute('data-auto-group-effect')
+    expect(autoOption.querySelector('[data-auto-group-frame]')).toBeNull()
+    expect(autoOption.querySelector('[data-auto-group-flow-border]')).toBeNull()
+
     const optionRatio = [
       ...autoOption.querySelectorAll('[data-slot="badge"]'),
     ].find((badge) => badge.textContent === 'Auto Ratio')
-    assert.ok(optionRatio)
+    expect(optionRatio).toBeDefined()
 
     const defaultOption = getCommandItem('User group')
-    assert.equal(defaultOption.textContent?.includes('1x Ratio'), true)
-
-    await act(async () => root.unmount())
-    container.remove()
+    expect(defaultOption).toHaveTextContent('1x Ratio')
   })
 
-  test('keeps search and selection behavior while leaving normal groups unstyled', async () => {
-    const container = document.createElement('div')
-    document.body.append(container)
-    const root = createRoot(container)
+  test('keeps search and selection behavior while leaving normal groups unstyled', () => {
+    const { container } = render(<Harness initialValue='auto' />)
 
-    await act(async () => root.render(<Harness initialValue='auto' />))
+    const trigger = getTrigger()
+    fireEvent.click(trigger)
 
-    const trigger = getTrigger(container)
-    await act(async () => trigger.click())
-
-    const searchInput = document.querySelector<HTMLInputElement>(
-      'input[placeholder="Search..."]'
-    )
-    assert.ok(searchInput)
-    await act(async () => {
-      const valueSetter = Object.getOwnPropertyDescriptor(
-        domWindow.HTMLInputElement.prototype,
-        'value'
-      )?.set
-      assert.ok(valueSetter)
-      valueSetter.call(searchInput, 'vip')
-      searchInput.dispatchEvent(
-        new domWindow.Event('input', { bubbles: true }) as unknown as Event
-      )
+    fireEvent.input(screen.getByPlaceholderText('Search...'), {
+      target: { value: 'vip' },
     })
 
     const visibleOptions = [
       ...document.querySelectorAll<HTMLElement>('[data-slot="command-item"]'),
     ]
-    assert.equal(
+    expect(
       visibleOptions.some((option) =>
         option.textContent?.includes('Global automatic routing')
-      ),
-      false
-    )
-    const vipOption = getCommandItem('Priority group')
-    await act(async () => vipOption.click())
+      )
+    ).toBe(false)
 
-    assert.equal(
-      container.querySelector('[data-testid="selected-group"]')?.textContent,
+    fireEvent.click(getCommandItem('Priority group'))
+
+    expect(within(container).getByTestId('selected-group')).toHaveTextContent(
       'vip'
     )
-    assert.equal(trigger.getAttribute('aria-expanded'), 'false')
-
-    await act(async () => root.unmount())
-    container.remove()
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(trigger).not.toHaveAttribute('data-auto-group-effect')
+    expect(trigger.querySelector('[data-auto-group-flow-border]')).toBeNull()
   })
 })
