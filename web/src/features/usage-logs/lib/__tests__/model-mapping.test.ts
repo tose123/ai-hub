@@ -16,8 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, test } from 'vitest'
 
 import type { UsageLog } from '../../data/schema'
 import { formatModelName } from '../format'
@@ -38,7 +37,7 @@ describe('model mapping display', () => {
       })
     )
 
-    assert.deepEqual(result, {
+    expect(result).toEqual({
       name: 'model-b',
       isMapped: true,
       requestModel: 'alias-a',
@@ -53,8 +52,8 @@ describe('model mapping display', () => {
       })
     )
 
-    assert.equal(result.isMapped, true)
-    assert.equal(result.requestModel, 'model-a')
+    expect(result.isMapped).toBe(true)
+    expect(result.requestModel).toBe('model-a')
   })
 
   test('ignores legacy internal upstream model metadata', () => {
@@ -65,7 +64,7 @@ describe('model mapping display', () => {
       })
     )
 
-    assert.deepEqual(result, {
+    expect(result).toEqual({
       name: 'model-b',
       isMapped: false,
       requestModel: undefined,
@@ -75,7 +74,7 @@ describe('model mapping display', () => {
   test('does not show an indicator without an external mapping', () => {
     const result = formatModelName(makeLog('model-b', {}))
 
-    assert.equal(result.name, 'model-b')
-    assert.equal(result.isMapped, false)
+    expect(result.name).toBe('model-b')
+    expect(result.isMapped).toBe(false)
   })
 })

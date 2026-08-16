@@ -16,15 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, test } from 'vitest'
 
 import { LOG_TYPE_ENUM } from '../../constants'
 import { getLogTypeConfig } from '../utils'
 
 describe('retry log type config', () => {
   test('uses neutral only for retrying errors', () => {
-    assert.equal(getLogTypeConfig(LOG_TYPE_ENUM.ERROR, true).color, 'neutral')
-    assert.equal(getLogTypeConfig(LOG_TYPE_ENUM.ERROR).color, 'red')
+    expect(getLogTypeConfig(LOG_TYPE_ENUM.ERROR, true).color).toBe('neutral')
+    expect(getLogTypeConfig(LOG_TYPE_ENUM.ERROR).color).toBe('red')
   })
 })

@@ -16,20 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, test } from 'vitest'
 
 import { parseHeaderNavModules } from './nav-modules'
 
 describe('header navigation modules', () => {
   test('keeps model status hidden by default', () => {
-    assert.equal(parseHeaderNavModules(undefined).modelStatus, false)
+    expect(parseHeaderNavModules(undefined).modelStatus).toBe(false)
   })
 
   test('enables model status when configured', () => {
-    assert.equal(
-      parseHeaderNavModules('{"modelStatus":true}').modelStatus,
-      true
-    )
+    expect(parseHeaderNavModules('{"modelStatus":true}').modelStatus).toBe(true)
   })
 })

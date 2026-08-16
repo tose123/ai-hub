@@ -16,8 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, test } from 'vitest'
 
 import { LOG_TYPE_ENUM } from '../../constants'
 import { getCommonLogRowClassName } from '../usage-log-row-appearance'
@@ -30,20 +29,19 @@ describe('retry log row appearance', () => {
     const tableClassName = getCommonLogRowClassName(log, 'table', true)
     const mobileClassName = getCommonLogRowClassName(log, 'mobile', true)
 
-    assert.match(tableClassName, /(?:^|\s)\[&>td\]:opacity-70(?:\s|$)/)
-    assert.match(tableClassName, /(?:^|\s)hover:\[&>td\]:opacity-90(?:\s|$)/)
-    assert.match(
-      tableClassName,
+    expect(tableClassName).toMatch(/(?:^|\s)\[&>td\]:opacity-70(?:\s|$)/)
+    expect(tableClassName).toMatch(/(?:^|\s)hover:\[&>td\]:opacity-90(?:\s|$)/)
+    expect(tableClassName).toMatch(
       /(?:^|\s)focus-within:\[&>td\]:opacity-90(?:\s|$)/
     )
-    assert.doesNotMatch(tableClassName, /(?:^|\s)opacity-70(?:\s|$)/)
+    expect(tableClassName).not.toMatch(/(?:^|\s)opacity-70(?:\s|$)/)
 
-    assert.match(mobileClassName, /(?:^|\s)opacity-70(?:\s|$)/)
-    assert.match(mobileClassName, /(?:^|\s)hover:opacity-90(?:\s|$)/)
-    assert.match(mobileClassName, /(?:^|\s)focus-within:opacity-90(?:\s|$)/)
+    expect(mobileClassName).toMatch(/(?:^|\s)opacity-70(?:\s|$)/)
+    expect(mobileClassName).toMatch(/(?:^|\s)hover:opacity-90(?:\s|$)/)
+    expect(mobileClassName).toMatch(/(?:^|\s)focus-within:opacity-90(?:\s|$)/)
 
-    assert.doesNotMatch(tableClassName, /blur/)
-    assert.doesNotMatch(mobileClassName, /blur/)
+    expect(tableClassName).not.toMatch(/blur/)
+    expect(mobileClassName).not.toMatch(/blur/)
   })
 
   test('keeps quota saturation warning stronger than retry deemphasis', () => {
@@ -65,8 +63,8 @@ describe('retry log row appearance', () => {
         true
       )
 
-      assert.match(className, /(?:^|\s)bg-warning\/10(?:\s|$)/)
-      assert.doesNotMatch(className, /opacity-/)
+      expect(className).toMatch(/(?:^|\s)bg-warning\/10(?:\s|$)/)
+      expect(className).not.toMatch(/opacity-/)
     }
   })
 
@@ -83,8 +81,8 @@ describe('retry log row appearance', () => {
         false
       )
 
-      assert.match(ordinaryErrorClassName, /(?:^|\s)bg-rose-50\/40(?:\s|$)/)
-      assert.match(userErrorClassName, /(?:^|\s)bg-rose-50\/40(?:\s|$)/)
+      expect(ordinaryErrorClassName).toMatch(/(?:^|\s)bg-rose-50\/40(?:\s|$)/)
+      expect(userErrorClassName).toMatch(/(?:^|\s)bg-rose-50\/40(?:\s|$)/)
     }
   })
 })

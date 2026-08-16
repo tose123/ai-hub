@@ -16,43 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { after, describe, test } from 'node:test'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, test, vi } from 'vitest'
 
-import { Window } from 'happy-dom'
+vi.mock('@/lib/lobe-icon', () => ({
+  getLobeIcon: () => null,
+}))
 
-const domWindow = new Window()
-const domGlobals = [
-  'window',
-  'document',
-  'navigator',
-  'HTMLElement',
-  'SVGElement',
-  'Node',
-  'Element',
-  'Event',
-  'CustomEvent',
-  'customElements',
-  'MutationObserver',
-  'ResizeObserver',
-  'requestAnimationFrame',
-  'cancelAnimationFrame',
-  'getComputedStyle',
-] as const
-
-for (const key of domGlobals) {
-  Object.defineProperty(globalThis, key, {
-    configurable: true,
-    value: domWindow[key],
-  })
-}
-Object.defineProperty(globalThis, 'matchMedia', {
-  configurable: true,
-  value: domWindow.matchMedia.bind(domWindow),
-})
-
-const { act } = await import('react')
-const { createRoot } = await import('react-dom/client')
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { ModelBadge } = await import('../model-badge')
@@ -71,65 +41,31 @@ await i18n.use(initReactI18next).init({
   },
 })
 
-const reactTestGlobals = globalThis as typeof globalThis & {
-  IS_REACT_ACT_ENVIRONMENT?: boolean
-}
-reactTestGlobals.IS_REACT_ACT_ENVIRONMENT = true
-
 describe('model badge mapping popover', () => {
-  after(() => {
-    domWindow.close()
-  })
-
-  test('opens the mapping relation from an independent icon button', async () => {
-    const container = document.createElement('div')
-    document.body.append(container)
-    const root = createRoot(container)
-
-    await act(async () => {
-      root.render(
-        <I18nextProvider i18n={i18n}>
-          <ModelBadge modelName='model-b' requestModel='alias-a' />
-        </I18nextProvider>
-      )
-    })
-
-    assert.equal(container.textContent?.includes('model-b'), true)
-    const trigger = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Model Mapping"]'
-    )
-    assert.ok(trigger)
-
-    await act(async () => trigger.click())
-
-    assert.equal(document.body.textContent?.includes('Request Model:'), true)
-    assert.equal(document.body.textContent?.includes('Actual Model:'), true)
-    assert.equal(document.body.textContent?.includes('alias-a'), true)
-    assert.equal(document.body.textContent?.includes('model-b'), true)
-
-    await act(async () => root.unmount())
-    container.remove()
-  })
-
-  test('does not render the mapping icon without an external mapping', async () => {
-    const container = document.createElement('div')
-    document.body.append(container)
-    const root = createRoot(container)
-
-    await act(async () => {
-      root.render(
-        <I18nextProvider i18n={i18n}>
-          <ModelBadge modelName='model-b' />
-        </I18nextProvider>
-      )
-    })
-
-    assert.equal(
-      container.querySelector('button[aria-label="Model Mapping"]'),
-      null
+  test('opens the mapping relation from an independent icon button', () => {
+    const { container } = render(
+      <I18nextProvider i18n={i18n}>
+        <ModelBadge modelName='model-b' requestModel='alias-a' />
+      </I18nextProvider>
     )
 
-    await act(async () => root.unmount())
-    container.remove()
+    expect(container).toHaveTextContent('model-b')
+    fireEvent.click(screen.getByRole('button', { name: 'Model Mapping' }))
+    expect(document.body).toHaveTextContent('Request Model:')
+    expect(document.body).toHaveTextContent('Actual Model:')
+    expect(document.body).toHaveTextContent('alias-a')
+    expect(document.body).toHaveTextContent('model-b')
+  })
+
+  test('does not render the mapping icon without an external mapping', () => {
+    const { container } = render(
+      <I18nextProvider i18n={i18n}>
+        <ModelBadge modelName='model-b' />
+      </I18nextProvider>
+    )
+
+    expect(
+      container.querySelector('button[aria-label="Model Mapping"]')
+    ).toBeNull()
   })
 })

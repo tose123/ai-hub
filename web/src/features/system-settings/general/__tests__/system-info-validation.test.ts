@@ -16,20 +16,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, test } from 'vitest'
 
 import { isValidLogoUrl } from '../system-info-validation'
 
 describe('system information logo URL validation', () => {
   test('accepts empty, absolute, and root-relative logo URLs', () => {
-    assert.equal(isValidLogoUrl(''), true)
-    assert.equal(isValidLogoUrl('https://example.com/logo.svg'), true)
-    assert.equal(isValidLogoUrl('/ai-hub-mark.svg'), true)
+    expect(isValidLogoUrl('')).toBe(true)
+    expect(isValidLogoUrl('https://example.com/logo.svg')).toBe(true)
+    expect(isValidLogoUrl('/ai-hub-mark.svg')).toBe(true)
   })
 
   test('rejects bare relative and protocol-relative logo URLs', () => {
-    assert.equal(isValidLogoUrl('ai-hub-mark.svg'), false)
-    assert.equal(isValidLogoUrl('//example.com/logo.svg'), false)
+    expect(isValidLogoUrl('ai-hub-mark.svg')).toBe(false)
+    expect(isValidLogoUrl('//example.com/logo.svg')).toBe(false)
   })
 })
