@@ -18,7 +18,7 @@ defaults:
 bootstrap:
   state: complete
   source_merge_base: 1db6ae19576d7019fec38cc63a3b94ce609c92c9
-  reviewed_local_head: 4ed96c8eb1beaf4ddd425bd435f5a58ef4ad446e
+  reviewed_local_head: 14b39debcfee6a39bd706ae6bef9cd49588424a8
 
 # 已审阅条目使用以下结构：
 # - id: anytools-shared-auth
@@ -277,6 +277,22 @@ features:
     behavior:
       - 未配置 `TRUSTED_PROXIES` 时默认信任私网回环及 Cloudflare 网段。
       - 显式配置在默认列表上追加；`none` 可完全禁用可信代理。
+    verification:
+      - go test ./middleware
+    protection: preserve_local_behavior
+    upstream_security_overlap: ask_user
+
+  - id: trusted-proxy-qyycdn-defaults
+    status: approved
+    category: backend
+    source_commits: ["14b39debc"]
+    paths:
+      - middleware/trusted_proxies.go
+    symbols: [ConfigureTrustedProxies, defaultTrustedProxyCIDRs]
+    behavior:
+      - 未配置 `TRUSTED_PROXIES` 时，除既有私网、回环与 Cloudflare 网段外，默认信任提交 `14b39debc` 所列 QYYCDN 公网 IPv4/IPv6 CIDR。
+      - 显式配置仍在完整默认列表上追加，故除使用 `none` 外，无法仅排除这些 QYYCDN 默认网段。
+    review_note: 用户确认这些网段来自 QYYCDN 付费用户控制台公开的可信列表，并明确选择保护该默认信任行为；部署方仍可用 `TRUSTED_PROXIES=none` 禁用全部可信代理。
     verification:
       - go test ./middleware
     protection: preserve_local_behavior
