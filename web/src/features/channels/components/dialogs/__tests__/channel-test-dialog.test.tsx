@@ -82,7 +82,10 @@ describe('ChannelTestDialog stream default', () => {
     expect(screen.getByRole('switch', { name: 'Stream Mode' })).toBeChecked()
 
     const closeButtons = screen.getAllByRole('button', { name: 'Close' })
-    await user.click(closeButtons.at(-1)!)
+    const closeButton = closeButtons.at(-1)
+    expect(closeButton).toBeDefined()
+    if (!closeButton) throw new Error('Close button not found')
+    await user.click(closeButton)
     await user.click(screen.getByRole('button', { name: 'Open channel test' }))
 
     expect(screen.getByRole('switch', { name: 'Stream Mode' })).toBeChecked()
