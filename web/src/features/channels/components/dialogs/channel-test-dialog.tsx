@@ -401,7 +401,7 @@ function ChannelTestDialogContent({
   const resetState = useCallback(() => {
     batchStopRequestedRef.current = true
     setEndpointType('auto')
-    setIsStreamTest(false)
+    setIsStreamTest(true)
     setSearchTerm('')
     setTestResults({})
     setRowSelection({})
