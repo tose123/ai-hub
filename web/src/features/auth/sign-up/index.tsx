@@ -23,11 +23,13 @@ import { useStatus } from '@/hooks/use-status'
 
 import { AuthLayout } from '../auth-layout'
 import { TermsFooter } from '../components/terms-footer'
+import { useAuthenticatedRedirect } from '../hooks/use-authenticated-redirect'
 import { SignUpForm } from './components/sign-up-form'
 
 export function SignUp() {
   const { t } = useTranslation()
   const { status } = useStatus()
+  useAuthenticatedRedirect('/dashboard')
 
   return (
     <AuthLayout>

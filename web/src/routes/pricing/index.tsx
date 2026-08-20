@@ -20,8 +20,9 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import z from 'zod'
 
 import { Pricing } from '@/features/pricing'
-import { getFreshModuleAccess } from '@/lib/nav-modules'
-import { useAuthStore } from '@/stores/auth-store'
+import { getModuleAccessFromStatus } from '@/lib/nav-modules'
+import { getBootstrappedAuth } from '@/lib/route-auth'
+import { statusQueryOptions } from '@/lib/status-query'
 
 const pricingSearchSchema = z.object({
   search: z.string().optional(),
@@ -38,13 +39,16 @@ const pricingSearchSchema = z.object({
 
 export const Route = createFileRoute('/pricing/')({
   validateSearch: pricingSearchSchema,
-  beforeLoad: async ({ location }) => {
-    const access = await getFreshModuleAccess('pricing')
+  beforeLoad: async ({ context, location }) => {
+    const access = await context.queryClient
+      .ensureQueryData(statusQueryOptions)
+      .then((status) => getModuleAccessFromStatus(status, 'pricing'))
+      .catch(() => ({ enabled: false, requireAuth: true }))
     if (!access.enabled) {
       throw redirect({ to: '/' })
     }
     if (access.requireAuth) {
-      const { auth } = useAuthStore.getState()
+      const auth = await getBootstrappedAuth()
       if (!auth.user) {
         throw redirect({
           to: '/sign-in',

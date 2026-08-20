@@ -16,8 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { getStatus } from '@/lib/api'
-
 export type ModuleAccess = { enabled: boolean; requireAuth: boolean }
 
 export type HeaderNavModule = 'rankings' | 'pricing'
@@ -154,16 +152,6 @@ function getCachedStatus(): Record<string, unknown> | null {
   }
 }
 
-function cacheStatus(status: Record<string, unknown> | null): void {
-  try {
-    if (typeof window !== 'undefined' && status) {
-      window.localStorage.setItem('status', JSON.stringify(status))
-    }
-  } catch {
-    /* empty */
-  }
-}
-
 export function getModuleAccessFromStatus(
   status: Record<string, unknown> | null,
   module: HeaderNavModule
@@ -173,18 +161,6 @@ export function getModuleAccessFromStatus(
 
 export function getModuleAccess(module: HeaderNavModule): ModuleAccess {
   return getModuleAccessFromStatus(getCachedStatus(), module)
-}
-
-export async function getFreshModuleAccess(
-  module: HeaderNavModule
-): Promise<ModuleAccess> {
-  try {
-    const status = (await getStatus()) as Record<string, unknown> | null
-    cacheStatus(status)
-    return getModuleAccessFromStatus(status, module)
-  } catch {
-    return { enabled: false, requireAuth: true }
-  }
 }
 
 export function isSidebarModuleEnabled(

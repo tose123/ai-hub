@@ -16,16 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { bootstrapAuthentication } from '@/lib/auth-session'
+import { useAuthStore } from '@/stores/auth-store'
 
-import { statusQueryOptions } from '@/lib/status-query'
-
-export function useStatus() {
-  const { data, isLoading, error } = useQuery(statusQueryOptions)
-
-  return {
-    status: data ?? null,
-    loading: isLoading,
-    error,
-  }
+export async function getBootstrappedAuth() {
+  await bootstrapAuthentication()
+  return useAuthStore.getState().auth
 }

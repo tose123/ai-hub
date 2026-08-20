@@ -30,7 +30,7 @@ const searchSchema = z.object({
 export const Route = createFileRoute('/(auth)/sign-in')({
   component: SignIn,
   validateSearch: searchSchema,
-  beforeLoad: async ({ search }) => {
+  beforeLoad: ({ search }) => {
     const { auth } = useAuthStore.getState()
 
     // 如果已经有用户信息，说明已登录

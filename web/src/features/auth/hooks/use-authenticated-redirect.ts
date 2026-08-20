@@ -16,16 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
+import { useEffect } from 'react'
 
-import { statusQueryOptions } from '@/lib/status-query'
+import { useAuthStore } from '@/stores/auth-store'
 
-export function useStatus() {
-  const { data, isLoading, error } = useQuery(statusQueryOptions)
+export function useAuthenticatedRedirect(target: string): void {
+  const navigate = useNavigate()
+  const user = useAuthStore((state) => state.auth.user)
 
-  return {
-    status: data ?? null,
-    loading: isLoading,
-    error,
-  }
+  useEffect(() => {
+    if (user) {
+      void navigate({ href: target, replace: true })
+    }
+  }, [navigate, target, user])
 }

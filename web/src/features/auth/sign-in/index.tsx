@@ -23,12 +23,17 @@ import { useStatus } from '@/hooks/use-status'
 
 import { AuthLayout } from '../auth-layout'
 import { TermsFooter } from '../components/terms-footer'
+import { useAuthenticatedRedirect } from '../hooks/use-authenticated-redirect'
+import { sanitizeAuthRedirect } from '../lib/auth-redirect'
 import { UserAuthForm } from './components/user-auth-form'
 
 export function SignIn() {
   const { t } = useTranslation()
   const { redirect } = useSearch({ from: '/(auth)/sign-in' })
   const { status } = useStatus()
+  const authenticatedTarget =
+    sanitizeAuthRedirect(redirect, window.location.origin) ?? '/dashboard'
+  useAuthenticatedRedirect(authenticatedTarget)
 
   return (
     <AuthLayout>

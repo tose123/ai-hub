@@ -20,8 +20,9 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import z from 'zod'
 
 import { Rankings } from '@/features/rankings'
-import { getFreshModuleAccess } from '@/lib/nav-modules'
-import { useAuthStore } from '@/stores/auth-store'
+import { getModuleAccessFromStatus } from '@/lib/nav-modules'
+import { getBootstrappedAuth } from '@/lib/route-auth'
+import { statusQueryOptions } from '@/lib/status-query'
 
 const rankingsSearchSchema = z.object({
   period: z
@@ -32,13 +33,16 @@ const rankingsSearchSchema = z.object({
 
 export const Route = createFileRoute('/rankings/')({
   validateSearch: rankingsSearchSchema,
-  beforeLoad: async ({ location }) => {
-    const access = await getFreshModuleAccess('rankings')
+  beforeLoad: async ({ context, location }) => {
+    const access = await context.queryClient
+      .ensureQueryData(statusQueryOptions)
+      .then((status) => getModuleAccessFromStatus(status, 'rankings'))
+      .catch(() => ({ enabled: false, requireAuth: true }))
     if (!access.enabled) {
       throw redirect({ to: '/' })
     }
     if (access.requireAuth) {
-      const { auth } = useAuthStore.getState()
+      const auth = await getBootstrappedAuth()
       if (!auth.user) {
         throw redirect({
           to: '/sign-in',
